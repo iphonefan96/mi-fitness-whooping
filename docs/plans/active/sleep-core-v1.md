@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phase 1 and Phase 2 contracts complete; Phase 3 not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3 implemented; Phase 4 not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 2 contract types and focused tests are implemented. Verify and reconcile this checkpoint before detailing Phase 3 pure calculation migration. No formula has been migrated yet.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Reconcile this checkpoint before specifying Phase 4 integration details. Production still uses Legacy.
 
 ## Rolling-wave phases
 
@@ -15,7 +15,15 @@ Phase 2 contract types and focused tests are implemented. Verify and reconcile t
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Only completed Phases 1 and 2 are detailed. Phases 3–6 remain high-level until the Phase 2 contracts are verified and reconciled. This plan does not schedule the whole project.
+Only completed Phases 1–3 are detailed. Phases 4–6 remain high-level until reconciliation of the pure calculator and its differential evidence. This plan does not schedule the whole project.
+
+## Completed task — SLEEP-PURE-03
+
+**Scope:** `src/analytics/sleep/core.py` reproduces Legacy Score, fixed-target Need and signed 14-night Debt through `SleepCoreInput` → three `SleepMetricResult` values. It has no Legacy runtime import, SQLite, clock, CLI or orchestration dependency. With no current night it returns an empty tuple before reading targets.
+
+**Verification:** `tests/analytics/test_sleep_core.py` compares observable values, statuses, units, algorithm/provenance identity, metric-specific metadata and ordered lineage with Legacy across synthetic normal, calibration, invalid and historical cases. It checks forbidden dependencies and clock reads. Existing contract and characterization suites remain unchanged.
+
+**Reconciliation:** the existing types carry the required observations and result metadata. Effective-dated profile resolution and invalid profile rejection occur before pure calculation, as designed; Phase 4 must provide that adapter without changing profile v1 semantics. No locked contract or architecture conflict was found. The feature specification's Phase 2 status prose is now stale; this task leaves that file unchanged because no new Legacy behavior required clarification, as the Phase 3 instruction requires. Refresh that status in the next authorized feature-spec reconciliation.
 
 ## Completed task — SLEEP-CONTRACT-02
 
@@ -64,8 +72,9 @@ Only completed Phases 1 and 2 are detailed. Phases 3–6 remain high-level until
 
 - [x] Reconcile Phase 1 findings, settle the conceptual domain boundary and record freshness ownership in ADR-001.
 - [x] SLEEP-CONTRACT-02: Phase 2 canonical contract types and tests only.
-- [ ] Reconcile Phase 2 evidence; then detail Phase 3 pure calculation migration.
-- [ ] Phases 3–6 as high-level work above.
+- [x] Reconcile Phase 2 evidence and implement SLEEP-PURE-03 against the canonical contracts.
+- [ ] Reconcile Phase 3 evidence; then detail Phase 4 integration.
+- [ ] Phases 4–6 as high-level work above.
 
 ## Risks and reconciliation log
 
@@ -94,3 +103,11 @@ Observed: a narrow `src/domain/sleep/` package now defines immutable input, resu
 Plan changes: Phase 2 contract work is complete. Phase 3 remains high-level and unstarted; its detailed design must be reconciled against the concrete types and Phase 1 oracle before formulas move.
 
 Reason: the contract boundary is now executable, while calculation and persistence integration remain separate tasks.
+
+### 2026-10-06 — Phase 3 pure calculation checkpoint
+
+Observed: differential tests reproduce Score, Need and Debt outputs on shared synthetic data, including invalid and cold-start statuses, effective targets, debt gaps/balance, metadata and lineage. A target calculator exists but is not called by the production runner. The target input already distinguishes raw invalid measurements from resolved valid targets.
+
+Plan changes: Phase 3 is implemented. Phase 4 remains a separate integration task; profile resolution, result adaptation and persistence compatibility require reconciliation before its detailed plan. Phases 5–6 remain high-level.
+
+Reason: preserving the existing profile and persistence contracts requires an adapter at the boundary, not logic inside pure calculations.

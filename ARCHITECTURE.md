@@ -1,6 +1,6 @@
 # Architecture
 
-Last verified: 2026-10-06 against the immutable `Legacy/` snapshot and synthetic tests. This document separates the **current implementation** from **proposed target boundaries**. Only the canonical Sleep Core contract package exists under `src/`; no target ingestion, calculation, storage, orchestration or presentation implementation exists.
+Last verified: 2026-10-06 against the immutable `Legacy/` snapshot and synthetic tests. This document separates the **current implementation** from **proposed target boundaries**. Canonical Sleep Core contracts and a pure calculator exist under `src/`; no target ingestion, storage, orchestration or presentation implementation exists.
 
 ## A. Current architecture
 
@@ -40,7 +40,7 @@ Synthetic tests support read-only source access, ETL rollback/idempotent overlap
 
 Architectural debt: ETL and runner have multiple responsibilities; the candidate imports ETL internals; runner and CLI query SQL directly; storage imports algorithm-specific dataclasses; monitoring consumes foundation `MetricDraft` objects; machine-specific paths live in scripts/CLI. The runner stores date-at-run freshness labels, while CLI status evaluates headline freshness at query time; an unchanged-source rerun does not update stored labels. These are observations, not changes scheduled by this document.
 
-## B. Proposed target boundaries — contracts only for Sleep Core
+## B. Proposed target boundaries — contracts and pure calculation for Sleep Core
 
 | Boundary | Intended ownership | Inputs → outputs |
 |---|---|---|
@@ -54,7 +54,7 @@ Architectural debt: ETL and runner have multiple responsibilities; the candidate
 | Presentation | CLI and future UI/API formatting and freshness-aware display | Reads published results/status |
 | Platform/config | Paths, profile configuration, locks, scheduling and platform adapters | Configuration/services for outer layers |
 
-These are coarse responsibilities, not a requirement for one file per metric. `src/domain/sleep/contracts.py` now establishes Sleep Core's canonical input/output types only. All other boundaries in the table remain proposed; no target calculation or production wiring exists. Ownership and interfaces must be reconciled against actual code before each implementation phase.
+These are coarse responsibilities, not a requirement for one file per metric. `src/domain/sleep/contracts.py` establishes Sleep Core's canonical input/output types; `src/analytics/sleep/core.py` calculates Score, Need and Debt from them without runtime Legacy, storage or clock dependencies. All other boundaries in the table remain proposed; the new calculator is not connected to production. Ownership and interfaces must be reconciled against actual code before each implementation phase.
 
 ### Target dependency direction
 
@@ -73,7 +73,7 @@ presentation --> published result/query interfaces
 ingestion/storage --> external source or persistent databases
 ```
 
-The arrows denote allowed knowledge of contracts: **analytics/sleep imports canonical-domain contracts**, while the canonical domain does not import sleep calculations. Orchestration calls sleep through those contracts; storage adapters map canonical results and ordered input references to existing persistence; presentation reads published results. Concrete adapters and storage are composed outside pure analytics. Independent analytics features may share canonical input contracts, but should not import one another's implementation-specific result types. Sleep Core V1's types are in `src/domain/sleep/contracts.py`; they are not yet used by a target calculator or runtime path.
+The arrows denote allowed knowledge of contracts: **analytics/sleep imports canonical-domain contracts**, while the canonical domain does not import sleep calculations. The target calculator now consumes these types, but no orchestrator calls it. A later orchestration adapter will assemble the input; storage adapters will map canonical results and ordered input references to existing persistence; presentation will read published results. Concrete adapters and storage are composed outside pure analytics. Independent analytics features may share canonical input contracts, but should not import one another's implementation-specific result types.
 
 Forbidden target dependencies:
 
