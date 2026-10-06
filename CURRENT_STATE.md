@@ -16,7 +16,7 @@ Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. The Phase 1 findings have been reconciled into a conceptual Sleep Core V1 input/output contract and an accepted target-architecture freshness ADR. No target `src/` package, target contract type, migrated calculation, target integration or new presentation layer exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 now provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py` and contract tests; the Phase 1 findings and freshness ADR remain their design basis. No target sleep calculator, integration, storage, orchestration or presentation implementation exists. No production data migration is underway.
 
 ## Current public contracts and storage
 
@@ -27,8 +27,9 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Standalone `Legacy/test_incremental.py`: **5/5 PASS** on synthetic temporary SQLite data.
 - `unittest` reconciliation plus five analytics modules: **62/62 PASS** on synthetic data.
 - Sleep-core characterization outside `Legacy/`: **17/17 PASS** on synthetic data.
+- Canonical Sleep Core contract tests: **10/10 PASS** on synthetic domain objects.
 - Failing: 0 in these runs. Skipped: 0 reported. No personal database was required.
-- The five ETL checks are a standalone script and are not included in the 79 unittest tests.
+- The five ETL checks are a standalone script and are not included in the 89 unittest tests.
 
 ## Known problems and risks
 
@@ -40,6 +41,6 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 
 ## Next architectural boundary
 
-The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phase 1 and its design reconciliation are complete. The next task, not yet started, is Phase 2 implementation of canonical input/output contract types and tests only; formulas and integration remain later phases. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
+The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phase 1 and its design reconciliation are complete; Phase 2 contract types/tests are in place. The next coherent boundary, not started, is Phase 3 pure calculation migration against those types and the immutable Legacy oracle. Integration and freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.

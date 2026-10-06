@@ -1,0 +1,1 @@
+"""Source-independent domain contracts."""

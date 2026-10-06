@@ -2,7 +2,7 @@
 
 ## Status
 
-**Reconciled design; Phase 1 characterization complete.** First migration boundary. No target implementation exists. Legacy remains the behavioral reference until migration integration and audit pass.
+**Phase 2 contracts implemented and under verification.** The first migration boundary has types only; no target sleep calculation or integration exists. Legacy remains the behavioral reference until migration integration and audit pass.
 
 ## Goal
 
@@ -35,7 +35,9 @@ This feature does not read Xiaomi tables or SQLite. Source freshness is supplied
 
 Legacy currently crosses some of these proposed boundaries: `calculate_sleep_day()` resolves profile entries itself and returns `MetricDraft` objects shared with storage, while runner and CLI split freshness decisions. An adapter must supply resolved targets and map a canonical result back to the existing persistence shape when later phases integrate. The boundary therefore requires an explicit compatibility adapter; it cannot be achieved by merely moving `sleep.py` unchanged.
 
-## Canonical input contract — conceptual, not implemented
+## Canonical input contract
+
+The concrete Phase 2 types live in `src/domain/sleep/contracts.py`. `SleepCoreInput` holds the target date, a tuple of `SelectedNight` values ordered by date, `EffectiveSleepTarget` values for the debt ledger, and an opaque profile revision for reproducibility. With a current night, targets cover exactly 14 dates; without one, an empty target tuple is allowed because Legacy returns no metrics before inspecting profile targets. Up to 14 prior nights plus the current night can be represented. `SelectedNight` carries the selected main night's required observations and `stage_complete`; `NightReference` carries immutable source lineage. The contract does not select a main sleep session or resolve a profile file.
 
 | Category | Minimum information and semantics |
 |---|---|
@@ -44,7 +46,7 @@ Legacy currently crosses some of these proposed boundaries: `calculate_sleep_day
 | Required for provenance | Stable, ordered references to the used nightly inputs. Each reference must carry enough identity/quality to reproduce current persisted lineage: date, feature identity/fingerprint, source count and source IDs hash, measurement interval and quality flags. The effective target snapshot and a profile revision or equivalent external configuration identity must be available to the integration adapter. Score references current night then valid prior-bedtime nights in date order; Need references current night; Debt references valid ledger nights in date order. |
 | Not part of pure sleep input | Raw Xiaomi rows, SQLite connection or row IDs, profile file path/JSON parsing, current time or `as_of`, stored `freshness_status`, CLI headline fields, run ID, release channel or active-selection ID. |
 
-The canonical input may group these facts differently from Legacy `FeatureRecord`, `SleepScoreInput`, `SleepNeedInput` and `SleepDebtInput`. Exact class names, package paths and serialization are Phase 2 interface choices; this table fixes semantics. Other nightly fields such as HR, SpO2, respiration, sleep session vendor score and activity are unnecessary for these three calculations.
+These types group facts differently from Legacy `FeatureRecord`, `SleepScoreInput`, `SleepNeedInput` and `SleepDebtInput`. Negative/out-of-range sleep observations remain representable, as does zero: Phase 3 must apply the existing quality/status gates rather than silently treating those observations as valid. Resolved targets are validated to 300–720 minutes; the default flag is paired with the existing 480-minute fallback. Other nightly fields such as HR, SpO2, respiration, sleep session vendor score and activity are unnecessary for these three calculations.
 
 ## Outputs and existing observable behavior
 
@@ -60,7 +62,9 @@ The existing score component details, rounding and validity gates in `score_comp
 
 Characterization shows two separate clock policies. On a calculation run, the runner labels metric results `HISTORICAL` for a date before local today, `FRESH` for today and `STALE` for a future date. A no-input-change rerun returns early and does not refresh stored labels. The status/headline path separately evaluates the last night's date/end against query time with a 36-hour maximum age: it can hide current values as `STALE` while a stored metric row still says `FRESH`. Direct `put_result()` with only a changed freshness label also reselects the existing fingerprinted row without updating that stored label. This observed discrepancy is **not** a new desired policy; preserve existing presentation output in this migration and resolve a new freshness policy only through a separate contract decision.
 
-## Canonical output contract — conceptual, not implemented
+## Canonical output contract
+
+`SleepMetricResult` is the single immutable result shape for the closed `SleepMetric` identities and `CalculationStatus` values. Its metadata is one of `ScoreMetadata`, `NeedMetadata` or `DebtMetadata`; Score component diagnostics use `ScoreComponents`. `NightReference` instances are kept in an ordered tuple for lineage. The result type checks metric/unit/metadata pairing, the observed status/value combinations and value ranges; it does not calculate a result.
 
 For each present current night, produce one dated result for each of `sleep.score`, `sleep.need_min` and `sleep.debt_min`; with no current night, produce none. Each result has metric name, value or `None`, unit, calculation status, algorithm ID/version, source type, upstream project/commit where present, confidence and the compatible metadata keys/meanings in the table above. The ordered lineage references and resolved-target/configuration identity must make its input set reproducible. `components`, `signed_balance_min`, history counts and gate diagnostics remain output metadata because they are stored and consumer-visible today.
 
@@ -71,9 +75,9 @@ The domain result may expose an opaque deterministic calculation-input identity,
 | Class | Items |
 |---|---|
 | **LOCKED BEHAVIOR** | The three metric names, formulas/rounding, units, status branch order, history/quality gates, 480-minute fallback, target range rejection, relevant metadata meanings, current headline visibility and current persistent compatibility. No formula or freshness redesign in V1. |
-| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity. This is a semantic contract; no target type exists yet. |
+| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity, now represented by the Phase 2 types in `src/domain/sleep/contracts.py`. No calculator or adapter exists yet. |
 | **INTERNAL IMPLEMENTATION DETAIL** | Legacy private helpers and dataclass layout, dictionary construction strategy, SQLite query implementation and numeric `result_id` values. Existing database schema and observable active-selection behavior are still locked at integration. |
-| **DEFERRED DECISION** | Exact target type names/package layout for Phase 2; a new freshness persistence/query policy; optional domain hash representation; future physiological Sleep Need, formula improvements, other sleep metrics and broader storage redesign. |
+| **DEFERRED DECISION** | A new freshness persistence/query policy; optional domain hash representation; future physiological Sleep Need, formula improvements, other sleep metrics and broader storage redesign. |
 
 ## Module ownership and dependencies
 
@@ -84,7 +88,7 @@ Allowed: canonical date/quality/lineage contracts and effective profile values s
 ## Public contracts
 
 - **EXISTING:** `calculate_sleep_day(day, nights, profile)` returns current `MetricDraft` objects; runner, storage and CLI consume the resulting metrics.
-- **NEW, semantically settled above but not implemented:** typed, source-independent nightly/history input and result contracts. They must preserve Legacy behavior and lineage without making algorithms depend on SQLite rows or presentation models. Phase 2 will choose exact type signatures; package paths are not locked here.
+- **NEW, Phase 2 contract types:** `SleepCoreInput`, `SelectedNight`, `EffectiveSleepTarget`, `NightReference`, `SleepMetricResult`, metric/status enums and metric-specific metadata types. They preserve the semantically settled boundary without making algorithms depend on SQLite rows or presentation models. These Python interfaces are now the target contract to consume in Phase 3; any material change requires reconciliation.
 
 ## Locked contracts
 
@@ -112,7 +116,7 @@ No ingestion/reconciliation migration; no sleep stage parsing or main-session se
 ## Acceptance criteria
 
 - [x] Phase 1 records representative Legacy outputs before target calculation code is written, including exact values, statuses, metadata and lineage-sensitive cases.
-- [ ] Typed input/output contracts cover only necessary sleep-core fields and represent missing versus measured zero distinctly.
+- [x] Typed input/output contracts cover only necessary sleep-core fields and represent missing versus measured zero distinctly.
 - [ ] New pure calculation matches Legacy score components, weighted score, fallback target and debt ledger on characterized cases, including invalid/cold-start cases.
 - [ ] Integration emits the same three metric names, units, statuses, algorithm IDs/version, provenance and relevant metadata through existing orchestration/storage interfaces without schema or CLI changes.
 - [ ] Unchanged reruns and historical corrections exhibit the same active-result behavior; source DB remains read-only.
@@ -150,6 +154,14 @@ Observed reality: the 17 tests and inspected Legacy code support a pure calculat
 Plan adjustment: settled the conceptual canonical input/output semantics, including ordered lineage and resolved effective targets; left exact target type names and hash representation for Phase 2. Created ADR-001 for freshness ownership. Phase 2 may establish contracts only; algorithm migration stays in Phase 3.
 
 Reason: this keeps the behavior-preserving boundary explicit without freezing Legacy dataclass layout or accidentally moving wall-clock/storage policy into pure sleep analytics.
+
+### 2026-10-06 — Phase 2 contract implementation
+
+Observed reality: the minimal domain package now contains immutable typed inputs, ordered lineage, resolved target snapshots, a closed three-metric result identity, compatible calculation statuses and metric-specific metadata. Ten focused contract tests confirm missing-versus-zero, incomplete stages, fallback, history ordering/bounds, output identity and absence of forbidden imports. Review against Legacy's no-current-night early return showed that targets must be optional when no current night exists; the contract permits this case. No calculator or integration code was introduced.
+
+Plan adjustment: exact type names and path are now established; Phase 3 can consume these contracts after this task's verification and reconciliation. The existing formulas, fingerprint storage implementation, freshness policy and CLI remain untouched.
+
+Reason: the types make the agreed boundary executable without prematurely moving algorithms or storage.
 
 ## Audit result
 
