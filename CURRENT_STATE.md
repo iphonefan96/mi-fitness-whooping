@@ -16,7 +16,7 @@ Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A now provides an input adapter in `src/integration/sleep/input_adapter.py` that converts already loaded nightly features and profile values into the canonical input. No output adapter or production wiring exists. No target storage, orchestration or presentation implementation exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A's input adapter converts already loaded nightly features and profile values into the canonical input. Phase 4B now provides an output adapter in `src/integration/sleep/output_adapter.py` that maps canonical results to the existing Legacy `MetricDraft` persistence interface. Synthetic fingerprint and persistence comparisons pass. No production wiring, target storage, orchestration or presentation implementation exists. No production data migration is underway.
 
 ## Current public contracts and storage
 
@@ -30,8 +30,9 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Canonical Sleep Core contract tests: **10/10 PASS** on synthetic domain objects.
 - Pure Sleep Core differential tests: **6/6 PASS** across representative synthetic score, need, debt and lineage cases.
 - Sleep Core input adapter tests: **9/9 PASS** on synthetic Legacy-shaped active features and profile values.
+- Sleep Core output adapter/fingerprint/persistence compatibility tests: **7/7 PASS** on temporary synthetic analytics databases.
 - Failing: 0 in these runs. Skipped: 0 reported. No personal database was required.
-- The five ETL checks are a standalone script and are not included in the 104 unittest tests.
+- The five ETL checks are a standalone script and are not included in the 111 unittest tests.
 
 ## Known problems and risks
 
@@ -44,6 +45,6 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 
 ## Next architectural boundary
 
-The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 have characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4A's input adapter exists; Phase 4B's output adapter is next, while production wiring remains gated by package loading and an external orchestration seam. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
+The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 have characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4A/B adapters exist and synthetic persistence fingerprints match Legacy; Phase 4C production wiring remains gated by package loading and an external orchestration seam. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.
