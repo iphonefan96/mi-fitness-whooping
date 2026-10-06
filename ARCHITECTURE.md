@@ -38,7 +38,7 @@ The installed ETL is incremental. `mi_fitness_reconcile.py` is a separate, unpro
 
 Synthetic tests support read-only source access, ETL rollback/idempotent overlap, analytics revision selection and historical correction, and candidate reconciliation safety. Full-history real-data completeness and whole-system clock-independent determinism are not established by the snapshot.
 
-Architectural debt: ETL and runner have multiple responsibilities; the candidate imports ETL internals; runner and CLI query SQL directly; storage imports algorithm-specific dataclasses; monitoring consumes foundation `MetricDraft` objects; machine-specific paths live in scripts/CLI. These are observations, not changes scheduled by this document.
+Architectural debt: ETL and runner have multiple responsibilities; the candidate imports ETL internals; runner and CLI query SQL directly; storage imports algorithm-specific dataclasses; monitoring consumes foundation `MetricDraft` objects; machine-specific paths live in scripts/CLI. The runner stores date-at-run freshness labels, while CLI status evaluates headline freshness at query time; an unchanged-source rerun does not update stored labels. These are observations, not changes scheduled by this document.
 
 ## B. Proposed target boundaries — not implemented
 

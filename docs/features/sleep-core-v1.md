@@ -2,7 +2,7 @@
 
 ## Status
 
-**Design.** First migration boundary. No target implementation exists.
+**Design; Phase 1 characterization complete.** First migration boundary. No target implementation exists.
 
 ## Goal
 
@@ -33,11 +33,13 @@ All three results are currently `MetricDraft` objects persisted as `derived_metr
 
 | Metric | Unit; algorithm ID | Value and status | Metadata that must remain compatible |
 |---|---|---|---|
-| `sleep.score` | `score`; `sleep.open_wearables_four_pillar_v1` | Integer weighted score when all four components are available: duration 40%, stages 20%, consistency 20%, interruptions 20%; `VALID`. Otherwise `None`: `INSUFFICIENT_DATA` for missing/incomplete stages, `CALIBRATING` for fewer than five valid prior bedtimes, or `INVALID` for remaining invalid component inputs, following Legacy's exact branch order. | `mode` (`FULL` or `None`), `components` (component score map or `None`), `history_count`, `required_history_count: 5`, `history_window_calendar_nights: 14`. Current provenance names Open Wearables and its pinned upstream commit. Inputs are current night plus valid prior-bedtime nights. |
+| `sleep.score` | `score`; `sleep.open_wearables_four_pillar_v1` | Integer weighted score when all four components are available: duration 40%, stages 20%, consistency 20%, interruptions 20%; `VALID`. Otherwise `None`: `INSUFFICIENT_DATA` if stage coverage is incomplete or one of `tst_min`, `deep_min`, `rem_min`, `waso_min`, `awakening_durations_min` is `None`; otherwise `CALIBRATING` for fewer than five valid prior bedtimes; otherwise `INVALID` for remaining invalid component inputs. A missing bedtime or zero TST with sufficient history is `INVALID`, not `INSUFFICIENT_DATA`. | `mode` (`FULL` or `None`), `components` (component score map or `None`), `history_count`, `required_history_count: 5`, `history_window_calendar_nights: 14`. Current provenance names Open Wearables and its pinned upstream commit. Inputs are current night plus valid prior-bedtime nights. |
 | `sleep.need_min` | `min`; `sleep.fixed_target_v1` | Effective target value; `VALID` for a configured target, `REDUCED` for the fixed 480-minute fallback. It is explicitly **not** a physiological estimate. | `mode` (`USER_TARGET` or `PROVISIONAL_DEFAULT`), `default_target`, `physiological_estimate: false`. Input is the current night. Current provenance names Vitals and its pinned upstream commit. |
 | `sleep.debt_min` | `min`; `sleep.signed_14_calendar_night_ledger_v1` | For a ready ledger, `max(0, -sum(TST - target))`: `VALID` if all ledger targets were configured, `REDUCED` if any used fallback. Otherwise value `None`, status `CALIBRATING`. Surplus is retained in the signed balance metadata, while exposed debt is nonnegative. | `mode`, `default_target`, `signed_balance_min`, `history_count`, `required_history_count: 10`, `longest_missing_gap`, `window_calendar_nights: 14`. Inputs are only ledger nights with valid positive complete-stage TST. |
 
-The existing score component details, rounding and validity gates in `score_components()` are part of the behavior to characterize, not an invitation to redesign them. Existing `sleep_headline()` only exposes current numeric values when freshness is `FRESH`; historical statuses remain visible. Result-level `freshness_status` is managed by runner/storage and must not be silently conflated with score validity.
+The existing score component details, rounding and validity gates in `score_components()` are part of the behavior to preserve, not an invitation to redesign them. Existing `sleep_headline()` only exposes current numeric values when freshness is `FRESH`; historical statuses remain visible. Result-level `freshness_status` is managed by runner/storage and must not be silently conflated with score validity.
+
+Characterization shows two separate clock policies. On a calculation run, the runner labels metric results `HISTORICAL` for a date before local today, `FRESH` for today and `STALE` for a future date. A no-input-change rerun returns early and does not refresh stored labels. The status/headline path separately evaluates the last night's date/end against query time with a 36-hour maximum age: it can hide current values as `STALE` while a stored metric row still says `FRESH`. Direct `put_result()` with only a changed freshness label also reselects the existing fingerprinted row without updating that stored label. This observed discrepancy is **not** a new desired policy; preserve existing presentation output in this migration and resolve a new freshness policy only through a separate contract decision.
 
 ## Module ownership and dependencies
 
@@ -74,7 +76,7 @@ No ingestion/reconciliation migration; no sleep stage parsing or main-session se
 
 ## Acceptance criteria
 
-- [ ] Phase 1 records representative Legacy outputs before target calculation code is written, including exact values, statuses, metadata and lineage-sensitive cases.
+- [x] Phase 1 records representative Legacy outputs before target calculation code is written, including exact values, statuses, metadata and lineage-sensitive cases.
 - [ ] Typed input/output contracts cover only necessary sleep-core fields and represent missing versus measured zero distinctly.
 - [ ] New pure calculation matches Legacy score components, weighted score, fallback target and debt ledger on characterized cases, including invalid/cold-start cases.
 - [ ] Integration emits the same three metric names, units, statuses, algorithm IDs/version, provenance and relevant metadata through existing orchestration/storage interfaces without schema or CLI changes.
@@ -96,6 +98,16 @@ Orchestration should adapt existing nightly features/profile values into the new
 - **Medium:** preserving metadata, provenance, profile effective dates, history ordering and storage fingerprints while changing internal types.
 - **High if scope expands:** changing schema, CLI output, source ingestion or user history. Such expansion is outside this feature and requires reconciliation.
 
-## Reconciliation log and audit result
+## Reconciliation log
 
-No implementation checkpoint yet. Audit: not started.
+### 2026-10-06 — Phase 1 characterization
+
+Observed reality: 17 synthetic tests outside `Legacy/` now execute the Legacy sleep algorithm, profile loading, storage identity, runner and freshness/headline helpers. They pin all three metric shapes and representative gates. The score status decision uses a narrower missing-field check than the earlier prose implied: missing bedtime is `INVALID` after history warm-up. Stored result freshness and query-time headline freshness can diverge without source changes; a freshness-only `put_result()` call does not create a new row or update the stored label.
+
+Plan adjustment: clarified the score status branch and separated calculation-time, stored and query-time freshness behavior. A future contract decision must address the freshness discrepancy before any deliberate change to it. Phase 2 remains high-level and has not begun.
+
+Reason: the migration must preserve observed behavior and must not silently reinterpret status or revision identity.
+
+## Audit result
+
+No target implementation or integration exists. Final feature audit: not started.

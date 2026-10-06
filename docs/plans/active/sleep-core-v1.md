@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Active design plan; implementation not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phase 1 complete; reconcile before Phase 2. Target implementation not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 1 — characterize existing Legacy behavior and pin contract tests. Do not migrate formulas until this phase passes and its observations are reconciled with the feature specification.
+Phase 1 characterization tests pass. Reconcile their findings with the feature specification before detailing Phase 2. Do not migrate formulas yet.
 
 ## Rolling-wave phases
 
@@ -17,7 +17,7 @@ Phase 1 — characterize existing Legacy behavior and pin contract tests. Do not
 
 Only Phase 1 is detailed. Reconcile before detailing later phases; do not create a whole-project migration schedule from this plan.
 
-## Active task — SLEEP-CHAR-01 (next task, not executed by this documentation change)
+## Completed active task — SLEEP-CHAR-01
 
 **Goal:** establish an executable behavior baseline for `sleep.score`, `sleep.need_min` and `sleep.debt_min` before target implementation.
 
@@ -32,25 +32,33 @@ Only Phase 1 is detailed. Reconcile before detailing later phases; do not create
 - Exact metric names, units, algorithm IDs/version, upstream provenance where present, metadata keys/values, and `MetricDraft.inputs` identities/order relevant to persistence fingerprints.
 - Where practical, a synthetic runner/storage example for unchanged rerun and one historical correction, without reading external personal DBs.
 
-**Likely files:** a new test location outside `Legacy/` selected in the next task. This plan does not prescribe a target package layout.
+**Files used:** `tests/characterization/test_legacy_sleep_core.py` outside `Legacy/`. This plan does not prescribe a target package layout.
 
 **Contracts affected:** tests characterize existing behavior; no production public interface changes. **Locked:** Legacy code, database schemas, CLI/output, profile v1 semantics, the three metric names/statuses/metadata and existing formulas.
 
-**Verification:** run the new characterization tests, the existing 62 unittest tests, and the standalone 5 ETL checks with bytecode writing disabled. Confirm all fixtures are synthetic, `Legacy/` is unchanged and no target implementation appeared. Review the captured expectations against `Legacy/analytics/algorithms/sleep.py` and `docs/features/sleep-core-v1.md`.
+**Verification result:** 17 characterization tests, 62 existing unittest tests and the standalone 5 ETL checks passed with bytecode writing disabled. Fixtures are synthetic; `Legacy/` remains unchanged and no target implementation appeared. Captured expectations were compared with `Legacy/analytics/algorithms/sleep.py` and `docs/features/sleep-core-v1.md`.
 
-**Expected result:** a failing or passing oracle-backed specification of existing behavior that future migration must satisfy, plus a concise reconciliation note if a documented expectation differs from actual Legacy behavior. Do not weaken tests to match a future implementation.
+**Result:** 17 passing Legacy-backed tests pin the existing behavior. The feature specification now distinguishes missing bedtime from missing stage values and records the stored-versus-query-time freshness discrepancy. No target implementation exists. Do not weaken these tests to match a future implementation.
 
 ## Completed tasks
 
 - [x] Factual Legacy architectural inventory completed in the preceding design task.
 - [x] Project, architecture, current-state, feature and rolling-wave plan documentation established in this documentation checkpoint.
+- [x] SLEEP-CHAR-01 characterization and contract tests, with synthetic inputs and immutable Legacy oracle.
 
 ## Remaining tasks
 
-- [ ] SLEEP-CHAR-01 characterization and contract tests.
-- [ ] Reconcile findings and detail Phase 2 only after Phase 1 evidence.
+- [ ] Reconcile the Phase 1 contract findings and detail Phase 2 only after this checkpoint.
 - [ ] Phases 2–6 as high-level work above.
 
 ## Risks and reconciliation log
 
-The main risk is accidentally treating a proposed typed contract as already implemented or preserving only numeric formulas while losing statuses, metadata or revision identity. `Legacy/` is the behavior oracle and remains immutable. No implementation reconciliation has occurred yet.
+The main risk is accidentally treating a proposed typed contract as already implemented or preserving only numeric formulas while losing statuses, metadata or revision identity. Stored result freshness can remain `FRESH` after the query-time headline becomes `STALE`; changing that policy is outside this behavior-preserving migration without a separate contract decision. `Legacy/` is the behavior oracle and remains immutable.
+
+### 2026-10-06 — Phase 1 evidence
+
+Observed: Legacy-backed tests confirmed score status branch order, effective-dated fallback, the 14-night debt ledger, result fingerprint/version behavior and the two freshness layers. A freshness-only persistence call reports a change but keeps the existing stored row/label.
+
+Plan changes: Phase 1 is complete; Phase 2 stays high-level pending explicit reconciliation of the observed contracts. No production implementation or schema task has been added.
+
+Reason: the observed freshness discrepancy and status details must be visible before defining target contracts.
