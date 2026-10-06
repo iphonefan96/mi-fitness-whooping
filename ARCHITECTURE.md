@@ -73,7 +73,7 @@ presentation --> published result/query interfaces
 ingestion/storage --> external source or persistent databases
 ```
 
-The arrows denote allowed knowledge of contracts. Concrete adapters and storage are composed by orchestration. Independent analytics features may share canonical input contracts, but should not import one another's implementation-specific result types.
+The arrows denote allowed knowledge of contracts: **analytics/sleep imports canonical-domain contracts**, while the canonical domain does not import sleep calculations. Orchestration calls sleep through those contracts; storage adapters map canonical results and ordered input references to existing persistence; presentation reads published results. Concrete adapters and storage are composed outside pure analytics. Independent analytics features may share canonical input contracts, but should not import one another's implementation-specific result types. The conceptual Sleep Core V1 contract is settled in `docs/features/sleep-core-v1.md`; no target types exist yet.
 
 Forbidden target dependencies:
 
@@ -82,6 +82,7 @@ Forbidden target dependencies:
 - One feature → another feature's private calculation or `MetricDraft` implementation.
 - Storage → algorithm implementation types where a canonical result contract suffices.
 - Canonical domain → ingestion, storage, presentation or platform code.
+- Pure analytics → wall-clock freshness policy. Freshness ownership is decided in `docs/adr/ADR-001-freshness-ownership.md`; Legacy does not yet realize this separation completely.
 
 An orchestrator may know feature interfaces and ordering. It should not alter formulas to satisfy a storage or presentation concern.
 

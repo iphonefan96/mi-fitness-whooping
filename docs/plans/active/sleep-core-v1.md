@@ -1,21 +1,35 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phase 1 complete; reconcile before Phase 2. Target implementation not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phase 1 and its design reconciliation complete; Phase 2 ready, not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 1 characterization tests pass. Reconcile their findings with the feature specification before detailing Phase 2. Do not migrate formulas yet.
+Phase 1 characterization tests pass and the conceptual contract is reconciled in the feature specification. The next task is Phase 2 contract definition only. Do not migrate formulas yet.
 
 ## Rolling-wave phases
 
 1. **Characterization / contract tests.** Detailed below. Capture current values, statuses, metadata and lineage with synthetic inputs while `Legacy/` stays immutable.
-2. **Canonical sleep input/output contracts.** Define the smallest typed nightly/history and result interfaces justified by Phase 1; reconcile the feature specification if an assumption was wrong.
+2. **Canonical sleep input/output contracts.** Implement only the smallest typed nightly/history and result interfaces justified by Phase 1, with contract tests. Details below.
 3. **Pure sleep calculation migration.** Reproduce score, need and debt behind those contracts. Keep formulas and quality gates unchanged.
 4. **Integration behind existing orchestration/storage contracts.** Adapt current feature/history input and persist compatible result drafts without schema or CLI changes.
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Only Phase 1 is detailed. Reconcile before detailing later phases; do not create a whole-project migration schedule from this plan.
+Only the completed Phase 1 and next Phase 2 are detailed. Phases 3–6 remain high-level until the Phase 2 contracts are verified and reconciled. This plan does not schedule the whole project.
+
+## Next task — SLEEP-CONTRACT-02 (planned; do not execute during this reconciliation)
+
+**Goal:** establish the minimal, immutable, source-independent canonical Sleep Core input/output types and their validation/identity semantics. This phase creates contracts only; it does not calculate Score, Need or Debt.
+
+**Scope:** choose a coarse canonical-domain location; define a dated selected-night input, bounded history/target snapshot, ordered lineage reference and three-metric calculation-result contract corresponding to the conceptual tables in the feature specification. Make absent night and missing value distinct from measured zero. Represent stage completeness and fallback use explicitly. Carry only the provenance/quality fields needed to reproduce the existing stored result through a later adapter. Define validation for dates, value presence and invalid configured targets without parsing profile files or Xiaomi rows.
+
+**Expected change area:** new canonical-domain contract types and focused contract tests outside `Legacy/`; update feature/architecture documentation only if implementation evidence requires reconciliation. No target calculator, SQLite repository, CLI, orchestration adapter or schema change in this phase. Select exact filenames when implementation begins; the boundary, not a guessed file layout, is fixed now.
+
+**Locked contracts:** all Sleep Core V1 behaviors and output compatibility in the feature specification; profile v1 semantics; unchanged source/analytics schemas and CLI; immutable Legacy and Phase 1 tests. ADR-001 keeps wall-clock freshness outside pure calculation.
+
+**Verification:** contract tests show that the type can represent all Phase 1 scenarios, ordered source references, effective targets/fallbacks, missing versus zero, quality/status and provenance; reject malformed dates/targets without changing current externally visible behavior. Run Phase 1 characterization and relevant Legacy synthetic suites unchanged. Confirm the new contract layer imports no SQLite, CLI, clock, Xiaomi adapter or algorithm implementation.
+
+**Exit condition:** contract semantics match `docs/features/sleep-core-v1.md`; no formulas or result persistence were migrated; reconcile any discovered mismatch before detailing Phase 3.
 
 ## Completed active task — SLEEP-CHAR-01
 
@@ -48,8 +62,9 @@ Only Phase 1 is detailed. Reconcile before detailing later phases; do not create
 
 ## Remaining tasks
 
-- [ ] Reconcile the Phase 1 contract findings and detail Phase 2 only after this checkpoint.
-- [ ] Phases 2–6 as high-level work above.
+- [x] Reconcile Phase 1 findings, settle the conceptual domain boundary and record freshness ownership in ADR-001.
+- [ ] SLEEP-CONTRACT-02: Phase 2 canonical contract types and tests only.
+- [ ] Reconcile Phase 2 evidence; then detail Phases 3–6 as needed.
 
 ## Risks and reconciliation log
 
@@ -62,3 +77,11 @@ Observed: Legacy-backed tests confirmed score status branch order, effective-dat
 Plan changes: Phase 1 is complete; Phase 2 stays high-level pending explicit reconciliation of the observed contracts. No production implementation or schema task has been added.
 
 Reason: the observed freshness discrepancy and status details must be visible before defining target contracts.
+
+### 2026-10-06 — Contract and freshness ownership reconciliation
+
+Observed: score/need/debt calculations need only dated sleep measurements, effective target snapshots and ordered input references; current profile loading and `MetricDraft`/SQLite wiring are integration concerns. Runner and CLI implement different freshness decisions outside the sleep formula.
+
+Plan changes: Phase 1 RECONCILE is complete. Phase 2 now has a bounded contract-only task. Phase 3 remains the first formula migration; Phases 3–6 stay high-level. ADR-001 assigns target freshness ownership outside pure analytics without changing Legacy behavior.
+
+Reason: the stable semantic boundary is supported by characterization, while exact target type names and storage adaptation must be validated incrementally.

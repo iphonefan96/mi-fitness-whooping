@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy Mi Fitness baseline`); workflow documentation: `8d93233` (`docs: add project development workflow`). These identify the state before this documentation checkpoint.
+Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy Mi Fitness baseline`); workflow documentation: `8d93233` (`docs: add project development workflow`); Phase 1 characterization: `ebf425b` (`test: characterize legacy sleep contracts`).
 
 ## Working in the immutable Legacy snapshot
 
@@ -16,7 +16,7 @@ Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration now has synthetic characterization tests outside `Legacy/`. No target `src/` package, target module boundary, migrated calculation, target integration or new presentation layer exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. The Phase 1 findings have been reconciled into a conceptual Sleep Core V1 input/output contract and an accepted target-architecture freshness ADR. No target `src/` package, target contract type, migrated calculation, target integration or new presentation layer exists. No production data migration is underway.
 
 ## Current public contracts and storage
 
@@ -40,6 +40,6 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 
 ## Next architectural boundary
 
-The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phase 1 characterization is complete. The next step is to reconcile those findings and define Phase 2 canonical input/output contracts, while preserving current formulas and outputs. See `docs/features/sleep-core-v1.md` and `docs/plans/active/sleep-core-v1.md`.
+The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phase 1 and its design reconciliation are complete. The next task, not yet started, is Phase 2 implementation of canonical input/output contract types and tests only; formulas and integration remain later phases. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.
