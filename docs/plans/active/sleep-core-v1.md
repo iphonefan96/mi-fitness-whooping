@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3 complete; Phase 4 boundary reconciled, implementation not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3 and Phase 4A input adapter complete; Phase 4B/C not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. The Phase 4 adapter contract is described below. Production still uses Legacy. Resolve the import-name collision and immutable-runner seam before any production wiring.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A now projects active nightly records and loaded profile values into `SleepCoreInput`. Production still uses Legacy. Resolve the import-name collision and immutable-runner seam before any production wiring.
 
 ## Rolling-wave phases
 
@@ -15,7 +15,7 @@ Phase 3's pure calculator consumes the Phase 2 contracts and has differential te
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Completed Phases 1–3 and the immediate Phase 4 adapter work are detailed. Phases 5–6 remain high-level. This plan does not schedule the whole project.
+Completed Phases 1–3 and Phase 4A, plus the immediate Phase 4B/C boundaries, are detailed. Phases 5–6 remain high-level. This plan does not schedule the whole project.
 
 ## Phase 4 integration boundary — design only
 
@@ -27,7 +27,11 @@ Completed Phases 1–3 and the immediate Phase 4 adapter work are detailed. Phas
 
 **Targets and errors:** if the current day has no active night, return an input with no targets and do not inspect any effective target; `load_profile()` has already validated the profile file at runner entry. Otherwise resolve the current target first, then each date day−13…day with the existing `effective_values()` semantics: absent/`None` means 480.0 minutes and default, configured values must be numeric, finite and 300–720 minutes, with the current `sleep_target_min must be within 300..720` error contract. Normalize every resolved target to `float`, matching Legacy `_target()`; `int` would compare numerically equal but could change storage's JSON fingerprint. Produce the complete ordered target ledger. Structural contract errors must surface before calculation; do not silently replace invalid configured targets. A missing active night in the ledger remains a calendar gap, not a zero night. Profile revision is carried unchanged for storage identity; the pure formula does not inspect it.
 
-**Precondition:** choose and test a stable way to load both codebases. `Legacy/analytics` and `src/analytics` are regular packages with the same top-level name; `PYTHONPATH=Legacy:src` hides target `analytics.sleep`, while `PYTHONPATH=src:Legacy` hides Legacy `analytics.algorithms`. Phase 4A may establish a non-colliding target import path or an explicit compatibility package boundary, but it must not mutate `sys.path` dynamically inside the pure calculator or modify Legacy. Record the chosen import contract before Phase 4C.
+**Import constraint:** `Legacy/analytics` and `src/analytics` are regular packages with the same top-level name; `PYTHONPATH=Legacy:src` hides target `analytics.sleep`, while `PYTHONPATH=src:Legacy` hides Legacy `analytics.algorithms`. Phase 4A's separate `integration.sleep` module can be imported and tested without loading target `analytics`. The two-analytics-package conflict remains unresolved by explicit task scope; choose and test a stable combined import contract before Phase 4C. Do not mutate `sys.path` dynamically inside the pure calculator or modify Legacy.
+
+**Phase 4A result:** `src/integration/sleep/input_adapter.py` defines a structural `NightlyFeature` interface and `adapt_sleep_input(day, nights, profile, profile_revision)`. It imports only canonical sleep contracts and standard-library modules. When the current date has no active night it returns `SleepCoreInput(day, (), (), profile_revision)` before reading profile or prior-night contents, matching Legacy's early return. With a current night it resolves that day's target first, maps the bounded history in ascending date order, then resolves the complete 14-date target ledger. Target values are `float`; observations retain missing, zero and invalid values for the pure calculator's gates. The adapter creates `NightReference` values from original feature identity/quality fields and does not load source files, access SQLite, calculate metrics or create persistence IDs.
+
+**Phase 4A verification:** nine synthetic tests in `tests/integration/test_sleep_input_adapter.py` cover current/absent nights, no-current malformed profile/history, ordered bounded history and references, stage coverage, missing versus zero, effective dates/defaults, float target representation, invalid target rejection, deterministic output and import/clock guards. They compare targets and selected observable cases with immutable Legacy code; existing tests remain unchanged. The output adapter and production wiring have not begun.
 
 ### Phase 4B — output adapter and persistence compatibility tests
 
@@ -116,7 +120,7 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 - [x] SLEEP-CONTRACT-02: Phase 2 canonical contract types and tests only.
 - [x] Reconcile Phase 2 evidence and implement SLEEP-PURE-03 against the canonical contracts.
 - [x] Reconcile Phase 3 evidence and define the Phase 4 adapter boundary.
-- [ ] Phase 4A input adapter, including stable import-path choice and tests.
+- [x] Phase 4A input adapter and tests; stable combined import-path choice deferred by explicit Phase 4A scope.
 - [ ] Phase 4B output adapter and persistence compatibility tests.
 - [ ] Phase 4C orchestration seam and wiring, only after its immutable-Legacy constraint is resolved.
 - [ ] Phases 5–6 as high-level work above.
@@ -164,3 +168,11 @@ Observed: current runner/storage uses active `FeatureRecord` instances, not mere
 Plan changes: Phase 4A/B are separately testable adapters; Phase 4C is gated on a reviewed external orchestration seam. Fixed the feature specification's Phase 2 status and recorded the exact input/output mapping and ownership table. No formula, schema, CLI, freshness or behavioral contract changed.
 
 Reason: these concrete dependencies determine whether a behavior-preserving integration can keep revision identity and active selection stable.
+
+### 2026-10-06 — Phase 4A input adapter checkpoint
+
+Observed: the input adapter can consume Legacy-shaped `FeatureRecord` instances through a structural interface without importing Legacy or target analytics. Its no-current-night branch avoids profile/history inspection; its target resolver matches Legacy's effective dates, 480.0 fallback, validation message and float representation. Nine new synthetic tests pass. No contract field was missing for provenance.
+
+Plan changes: Phase 4A is complete. The earlier proposed Phase 4A import-path decision is deferred because the current task explicitly excluded solving the two-package conflict and the adapter does not require it. Phase 4B remains output conversion and persistence compatibility tests; Phase 4C still requires a stable combined import path and an external orchestration seam. The feature specification still describes Phase 4 as designed but unimplemented; this task leaves its status wording unchanged under the explicit instruction to edit that file only for a mapping-contract clarification. No formula, schema, CLI, freshness or production runner behavior changed.
+
+Reason: this preserves the bounded input boundary while keeping unrelated packaging and production integration decisions separate.
