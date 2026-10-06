@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3 and Phase 4A/B adapters complete; Phase 4C not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3 and Phase 4A/B adapters complete; Phase 4C not started.** ADR-002 resolves its package/seam design, not its implementation. Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A projects active nightly records and loaded profile values into `SleepCoreInput`. Phase 4B converts results back to Legacy-compatible `MetricDraft` values and proves synthetic persistence fingerprints match. Production still uses Legacy. Resolve the import-name collision and immutable-runner seam before any production wiring.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A projects active nightly records and loaded profile values into `SleepCoreInput`. Phase 4B converts results back to Legacy-compatible `MetricDraft` values and proves synthetic persistence fingerprints match. Production still uses Legacy. ADR-002 chooses the target package identity and external seam; implement and verify them in 4C1 before considering a wrapper or production wiring.
 
 ## Rolling-wave phases
 
@@ -27,7 +27,7 @@ Completed Phases 1–3 and Phase 4A/B, plus the immediate Phase 4C boundary, are
 
 **Targets and errors:** if the current day has no active night, return an input with no targets and do not inspect any effective target; `load_profile()` has already validated the profile file at runner entry. Otherwise resolve the current target first, then each date day−13…day with the existing `effective_values()` semantics: absent/`None` means 480.0 minutes and default, configured values must be numeric, finite and 300–720 minutes, with the current `sleep_target_min must be within 300..720` error contract. Normalize every resolved target to `float`, matching Legacy `_target()`; `int` would compare numerically equal but could change storage's JSON fingerprint. Produce the complete ordered target ledger. Structural contract errors must surface before calculation; do not silently replace invalid configured targets. A missing active night in the ledger remains a calendar gap, not a zero night. Profile revision is carried unchanged for storage identity; the pure formula does not inspect it.
 
-**Import constraint:** `Legacy/analytics` and `src/analytics` are regular packages with the same top-level name; `PYTHONPATH=Legacy:src` hides target `analytics.sleep`, while `PYTHONPATH=src:Legacy` hides Legacy `analytics.algorithms`. Phase 4A's separate `integration.sleep` module can be imported and tested without loading target `analytics`. The two-analytics-package conflict remains unresolved by explicit task scope; choose and test a stable combined import contract before Phase 4C. Do not mutate `sys.path` dynamically inside the pure calculator or modify Legacy.
+**Import constraint and design decision:** `Legacy/analytics` and `src/analytics` are regular packages with the same top-level name; `PYTHONPATH=Legacy:src` hides target `analytics.sleep`, while `PYTHONPATH=src:Legacy` hides Legacy `analytics.algorithms`. Tests currently import the target as `src.analytics.sleep.core` while Legacy owns `analytics`, which is not a durable product identity. ADR-002 chooses the future `mi_fitness_whooping` top-level package. No rename has occurred. Phase 4C1 must migrate target imports/tests together and prove normal combined imports without runtime `sys.path` tricks or modifying Legacy.
 
 **Phase 4A result:** `src/integration/sleep/input_adapter.py` defines a structural `NightlyFeature` interface and `adapt_sleep_input(day, nights, profile, profile_revision)`. It imports only canonical sleep contracts and standard-library modules. When the current date has no active night it returns `SleepCoreInput(day, (), (), profile_revision)` before reading profile or prior-night contents, matching Legacy's early return. With a current night it resolves that day's target first, maps the bounded history in ascending date order, then resolves the complete 14-date target ledger. Target values are `float`; observations retain missing, zero and invalid values for the pure calculator's gates. The adapter creates `NightReference` values from original feature identity/quality fields and does not load source files, access SQLite, calculate metrics or create persistence IDs.
 
@@ -51,9 +51,17 @@ Completed Phases 1–3 and Phase 4A/B, plus the immediate Phase 4C boundary, are
 
 **Phase 4B fingerprint and persistence evidence:** seven new synthetic tests compare Legacy and adapted `MetricDraft`s for valid Score, calibration, insufficient Score, default/effective-dated Need, valid and calibrating Debt, metadata `None`/nested components, ordered original object identity and mismatched lineage. The tests call the real `put_result()` in separate temporary analytics DBs and compare the three `input_fingerprint` values, metadata/source-signal/coverage JSON, flags, measurement bounds and key result columns. Fingerprints match for all three metrics across the representative cases. Initial insert, unchanged rerun, corrected historical input, revision chain, active selection and freshness-only reselection also match. No storage function or schema was changed; these tests do not establish whole-runner or real-data equivalence.
 
-### Phase 4C — gated orchestration wiring
+### Phase 4C — external seam, staged and gated
 
-Wire the compatibility path into an orchestration seam **outside immutable `Legacy/`** only after A/B tests prove identical drafts and persistence fingerprints. The installed Legacy runner currently imports `calculate_sleep_day()` directly; no editable hook exists in the snapshot. A concrete external wiring approach therefore needs review before Phase 4C and must not duplicate the entire runner, monkey-patch imports or change CLI/schema behavior without explicit reconciliation. Keep Legacy as the production path until this seam is available and tested.
+ADR-002 records the package identity and external seam. The installed Legacy runner imports `calculate_sleep_day()` directly and has no sleep injection hook. The new path begins **outside immutable `Legacy/`**, after `active_feature_records()` provides the original active-night map and before the resulting drafts reach unchanged `put_result()`. Do not monkey-patch the Legacy runner, edit its files, or post-process sleep results in the production database. Keep the production runner and CLI on Legacy.
+
+**4C1 — exact next task: package separation and synthetic seam proof.** Move only current target domain/analytics/integration modules under `src/mi_fitness_whooping/` and update their imports/tests as one bounded change. Choose minimal packaging/source-root configuration and prove a clean subprocess can import both `analytics.algorithms.foundations` from Legacy and `mi_fitness_whooping.analytics.sleep.core` from target, independent of path order. On a temporary synthetic analytics DB, seed active nightly features using existing storage; load a synthetic profile with `load_profile()`; read original nights with `active_feature_records()`; run input adapter → pure Sleep Core → output adapter → real `put_result()` with explicit fixed run ID, profile revision, source policy and stored freshness. Compare Legacy and target drafts, fingerprints, stored fields, ordered provenance, unchanged rerun, corrected-night revision and active selection. Keep no-current-night and changed-profile cases in scope where they can be proven without runner replacement. Use no personal data or production entrypoint. Re-run all 111 current unittest checks and five ETL checks. Do not alter locked contracts or schemas.
+
+**4C2 — target orchestration wrapper, after 4C1 reconciliation.** Add a bounded external sleep caller with explicit run context and transaction ownership on synthetic data. Verify no-night obsolete-selection cleanup, profile revision, clock-controlled stored freshness, rollback and lock/error behavior. Decide how this wrapper composes with unchanged non-sleep calculations and replay before widening it. A sleep-only wrapper does not establish full runner or CLI parity.
+
+**4C3 — production switch, separately gated.** Reconcile the entire existing runner lifecycle: source generation/checkpoints, dirty-date expansion and 90-day/CUSUM replay, feature writes, all metric ordering, lock and transaction, run records, obsolete selection, counters/errors and current CLI JSON/headline. Choose an opt-in activation and rollback only after full synthetic regression. Do not copy the whole runner blindly or change the installed ETL. No implementation detail for 4C3 is locked by this plan.
+
+**Proof limit:** 4C1 can prove the three sleep metrics' names, statuses, units, versions, metadata, exact input fingerprints, revision chain and active selection through real storage in synthetic cases. It cannot prove production source detection, full runner counters, query-time freshness or CLI-visible output. Stored freshness is passed explicitly by the outer caller and stays outside pure calculation per ADR-001. A later feature may migrate Recovery, Monitoring or Activity into the same project package and outer seam; none is part of 4C1.
 
 ### Field ownership at this boundary
 
@@ -134,7 +142,8 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 - [x] Reconcile Phase 3 evidence and define the Phase 4 adapter boundary.
 - [x] Phase 4A input adapter and tests; stable combined import-path choice deferred by explicit Phase 4A scope.
 - [x] Phase 4B output adapter and synthetic persistence compatibility tests.
-- [ ] Phase 4C orchestration seam and wiring, only after its immutable-Legacy constraint is resolved.
+- [ ] Phase 4C1 package separation and synthetic seam proof per ADR-002; then reconcile 4C2 wrapper scope.
+- [ ] Phase 4C2 synthetic orchestration wrapper and separately gated 4C3 production switch.
 - [ ] Phases 5–6 as high-level work above.
 
 ## Risks and reconciliation log
@@ -196,3 +205,11 @@ Observed: Phase 4A maps observations and resolves profile targets without calcul
 Plan changes: Phase 4B is complete; Phase 4C remains unstarted. The direct Legacy `MetricDraft` import is confined to `src/integration/sleep/output_adapter.py`. Neither storage nor canonical/pure sleep code changed. The two `analytics` packages still conflict under ordinary import ordering, and immutable Legacy provides no direct runner hook. The feature specification's Phase 4 status prose remains intentionally unchanged because this task authorized editing it only for a newly discovered persistence contract; none was found.
 
 Reason: exact storage identity is proven for synthetic drafts, but production orchestration and packaging compatibility require their own task and regression checks.
+
+### 2026-10-06 — Phase 4C import and seam design
+
+Observed: two read-only import checks confirm that `Legacy:src` resolves `analytics` to Legacy and cannot import target `analytics.sleep`, while `src:Legacy` resolves it to target and cannot import Legacy `analytics.algorithms`. Existing mixed tests use `src.analytics.sleep.core` only because the repository root is on `sys.path`; no install/package manifest establishes that as a product import. The Legacy runner binds `calculate_sleep_day()` at import and exposes no calculator argument. Its surrounding source, replay, lock, transaction, freshness and cleanup responsibilities cannot be replaced by a sleep-only function call.
+
+Plan changes: ADR-002 chooses `mi_fitness_whooping` and an external seam between selected active features and existing storage. Phase 4C is divided into 4C1 combined-import and temporary-DB proof, 4C2 synthetic orchestration wrapper, and a separately reconciled 4C3 production switch. Earlier wording that left package identity/seam undecided described the prior state; the choices are now documented but unimplemented. Feature scope, formulas, schemas, Legacy code, CLI and freshness contracts remain unchanged.
+
+Reason: a narrow proof can validate sleep result persistence without claiming runner parity or mutating the installed path.
