@@ -16,7 +16,7 @@ Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py`. Phase 3 now provides pure Score, Need and Debt calculations in `src/analytics/sleep/core.py`, with synthetic differential tests against Legacy. They are not connected to production. No target integration, storage, orchestration or presentation implementation exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/analytics/sleep/core.py`, with synthetic differential tests against Legacy. The Phase 4 integration boundary has been reconciled in documentation, but no adapter or production wiring exists. No target storage, orchestration or presentation implementation exists. No production data migration is underway.
 
 ## Current public contracts and storage
 
@@ -38,10 +38,11 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Production and candidate reconciliation semantics differ. Production per-DB overlap does not establish complete detection of arbitrary old corrections.
 - Source/change and freshness handling spans several layers; full CLI output compatibility and installed scheduling are not comprehensively characterized by automated tests.
 - Sleep-core characterization found that a stored metric can retain `FRESH` after query-time status becomes `STALE`; a freshness-only persistence call reselects the existing row without changing its label. This is recorded behavior, not an authorized policy change.
+- Legacy and target both define a regular top-level `analytics` package; simple path ordering prevents importing both by their usual names in one process. Legacy runner directly imports the old sleep function and is immutable. These are explicit Phase 4 integration constraints, not resolved implementation work.
 - Absolute paths and macOS/POSIX assumptions remain in Legacy deployment files. The snapshot has no real-data fixtures or package manifest.
 
 ## Next architectural boundary
 
-The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 have characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4 integration behind existing orchestration and persistence contracts has not started. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
+The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 have characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4's input and output adapters are specified but not built; production wiring is gated by package loading and an external orchestration seam. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.

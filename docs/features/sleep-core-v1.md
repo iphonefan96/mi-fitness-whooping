@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 2 contracts implemented and under verification.** The first migration boundary has types only; no target sleep calculation or integration exists. Legacy remains the behavioral reference until migration integration and audit pass.
+**Phases 1–3 complete; Phase 4 integration designed but not implemented.** Canonical types and a pure calculator exist under `src/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
 
 ## Goal
 
@@ -14,7 +14,7 @@ The analytics orchestrator supplies dated inputs and receives metric results. Ex
 
 ## Inputs
 
-Legacy source for this contract: `Legacy/analytics/algorithms/sleep.py:calculate_sleep_day`, receiving a `date`, a `dict[date, FeatureRecord]` of nightly features, and profile JSON from `load_profile`. These are current interfaces, not the proposed canonical signature. The future typed contract is **not yet implemented** and must carry only the behaviorally required information below.
+Legacy source for this contract: `Legacy/analytics/algorithms/sleep.py:calculate_sleep_day`, receiving a `date`, a `dict[date, FeatureRecord]` of nightly features, and profile JSON from `load_profile`. These remain the production interfaces. `SleepCoreInput` and `calculate_sleep_core()` are implemented but not connected to them.
 
 | Input | Required for | Existing meaning |
 |---|---|---|
@@ -46,7 +46,7 @@ The concrete Phase 2 types live in `src/domain/sleep/contracts.py`. `SleepCoreIn
 | Required for provenance | Stable, ordered references to the used nightly inputs. Each reference must carry enough identity/quality to reproduce current persisted lineage: date, feature identity/fingerprint, source count and source IDs hash, measurement interval and quality flags. The effective target snapshot and a profile revision or equivalent external configuration identity must be available to the integration adapter. Score references current night then valid prior-bedtime nights in date order; Need references current night; Debt references valid ledger nights in date order. |
 | Not part of pure sleep input | Raw Xiaomi rows, SQLite connection or row IDs, profile file path/JSON parsing, current time or `as_of`, stored `freshness_status`, CLI headline fields, run ID, release channel or active-selection ID. |
 
-These types group facts differently from Legacy `FeatureRecord`, `SleepScoreInput`, `SleepNeedInput` and `SleepDebtInput`. Negative/out-of-range sleep observations remain representable, as does zero: Phase 3 must apply the existing quality/status gates rather than silently treating those observations as valid. Resolved targets are validated to 300–720 minutes; the default flag is paired with the existing 480-minute fallback. Other nightly fields such as HR, SpO2, respiration, sleep session vendor score and activity are unnecessary for these three calculations.
+These types group facts differently from Legacy `FeatureRecord`, `SleepScoreInput`, `SleepNeedInput` and `SleepDebtInput`. Negative/out-of-range sleep observations remain representable, as does zero: the Phase 3 calculator applies the existing quality/status gates rather than silently treating those observations as valid. Resolved targets are validated to 300–720 minutes; the default flag is paired with the existing 480-minute fallback. Other nightly fields such as HR, SpO2, respiration, sleep session vendor score and activity are unnecessary for these three calculations.
 
 ## Outputs and existing observable behavior
 
@@ -75,20 +75,20 @@ The domain result may expose an opaque deterministic calculation-input identity,
 | Class | Items |
 |---|---|
 | **LOCKED BEHAVIOR** | The three metric names, formulas/rounding, units, status branch order, history/quality gates, 480-minute fallback, target range rejection, relevant metadata meanings, current headline visibility and current persistent compatibility. No formula or freshness redesign in V1. |
-| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity, now represented by the Phase 2 types in `src/domain/sleep/contracts.py`. No calculator or adapter exists yet. |
+| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity, represented by the Phase 2 types in `src/domain/sleep/contracts.py` and consumed by the Phase 3 calculator. No production adapter exists yet. |
 | **INTERNAL IMPLEMENTATION DETAIL** | Legacy private helpers and dataclass layout, dictionary construction strategy, SQLite query implementation and numeric `result_id` values. Existing database schema and observable active-selection behavior are still locked at integration. |
 | **DEFERRED DECISION** | A new freshness persistence/query policy; optional domain hash representation; future physiological Sleep Need, formula improvements, other sleep metrics and broader storage redesign. |
 
 ## Module ownership and dependencies
 
-Proposed primary owner: target analytics/sleep boundary. The canonical domain owns input/output contracts; orchestration assembles history and invokes calculation; storage maps canonical results to the unchanged persistence contract; presentation displays published results. These owners are proposals, not existing modules.
+The target analytics/sleep boundary owns the pure calculator and the canonical domain owns input/output contracts. Orchestration assembling history, a compatibility adapter mapping results to unchanged persistence, and presentation displaying published results remain proposed target responsibilities; no target production integration exists.
 
-Allowed: canonical date/quality/lineage contracts and effective profile values supplied through an explicit boundary. Forbidden: direct SQLite access, CLI/presentation imports, Xiaomi-specific record or path assumptions, and imports of another feature's implementation-specific `MetricDraft`.
+Pure analytics may import canonical date/quality/lineage contracts and receive effective profile values through an explicit boundary. It must not access SQLite, CLI/presentation, Xiaomi-specific records/paths or another feature's implementation-specific `MetricDraft`. A separate transitional output adapter may import Legacy `MetricDraft` solely to preserve the unchanged persistence interface; that dependency must not enter the canonical domain or pure calculator.
 
 ## Public contracts
 
 - **EXISTING:** `calculate_sleep_day(day, nights, profile)` returns current `MetricDraft` objects; runner, storage and CLI consume the resulting metrics.
-- **NEW, Phase 2 contract types:** `SleepCoreInput`, `SelectedNight`, `EffectiveSleepTarget`, `NightReference`, `SleepMetricResult`, metric/status enums and metric-specific metadata types. They preserve the semantically settled boundary without making algorithms depend on SQLite rows or presentation models. These Python interfaces are now the target contract to consume in Phase 3; any material change requires reconciliation.
+- **NEW, Phase 2 contract types and Phase 3 calculation:** `SleepCoreInput`, `SelectedNight`, `EffectiveSleepTarget`, `NightReference`, `SleepMetricResult`, metric/status enums and metric-specific metadata types are consumed by pure `calculate_sleep_core(SleepCoreInput)`. These are not yet production interfaces. Any material contract change requires reconciliation.
 
 ## Locked contracts
 
@@ -117,7 +117,7 @@ No ingestion/reconciliation migration; no sleep stage parsing or main-session se
 
 - [x] Phase 1 records representative Legacy outputs before target calculation code is written, including exact values, statuses, metadata and lineage-sensitive cases.
 - [x] Typed input/output contracts cover only necessary sleep-core fields and represent missing versus measured zero distinctly.
-- [ ] New pure calculation matches Legacy score components, weighted score, fallback target and debt ledger on characterized cases, including invalid/cold-start cases.
+- [x] New pure calculation matches Legacy score components, weighted score, fallback target and debt ledger on synthetic differential cases, including invalid/cold-start cases.
 - [ ] Integration emits the same three metric names, units, statuses, algorithm IDs/version, provenance and relevant metadata through existing orchestration/storage interfaces without schema or CLI changes.
 - [ ] Unchanged reruns and historical corrections exhibit the same active-result behavior; source DB remains read-only.
 - [ ] Existing 5 ETL checks and 62 unittest tests remain passing; new contract/regression/integration tests pass without personal data.
@@ -130,6 +130,12 @@ Phase 1 characterized Legacy using synthetic nightly `FeatureRecord`s/profile v1
 ## Integration and compatibility
 
 Orchestration should adapt existing nightly features/profile values into the new contract and return outputs to the existing result persistence interface. Database schema, names and CLI JSON remain unchanged for this migration. Preserve existing input lineage so the revision/fingerprint policy is comparable; investigate any difference before accepting it. Characterization precedes contract design, pure migration, integration and independent audit.
+
+For Phase 4, a compatibility input adapter will accept the runner's dated active `nightly` `FeatureRecord` map, already loaded profile v1 data and profile revision. It will project only the requested date and previous 14 nights into `SelectedNight` values, convert `stage_coverage == "COMPLETE"` to `stage_complete`, retain each source feature's identity/quality fields in `NightReference`, and resolve the current plus previous 13 effective targets with Legacy's 480-minute fallback and 300–720 validation. Resolved target minutes must be `float`, as in Legacy `_target()`: using an integer could alter the JSON value in storage's fingerprint even when the numeric value compares equal. It must return an empty-current-night input without evaluating per-date targets, preserving Legacy's early return. It will not read SQLite or choose the main session; the current feature builder and active feature selection retain those duties.
+
+An output compatibility adapter will turn each `SleepMetricResult` into the existing `MetricDraft` shape using the **same original active `FeatureRecord` objects** in result lineage order. It will map enum values to current strings and metric-specific metadata dataclasses to the exact existing nested dictionaries. It must verify each `NightReference` resolves to its original feature by date/fingerprint and preserve the remaining lineage fields. It will not calculate result IDs, fingerprints, freshness or active selection. The current `put_result()` path retains those duties, with run context supplied by orchestration. This adapter is a transitional boundary; it does not make Legacy's algorithm-defined `MetricDraft` a canonical-domain dependency.
+
+The adapters' exact import/loading location is unsettled. `Legacy/analytics` and `src/analytics` are both regular packages named `analytics`; a single ordinary `PYTHONPATH` order hides one of them. Phase 4 must establish a stable, tested import boundary before wiring. Since `Legacy/` is immutable, Phase 4 must also find an orchestration seam outside that directory; no change to the installed runner is authorized by this design.
 
 ## Risks
 
@@ -163,6 +169,14 @@ Plan adjustment: exact type names and path are now established; Phase 3 can cons
 
 Reason: the types make the agreed boundary executable without prematurely moving algorithms or storage.
 
+### 2026-10-06 — Phase 3 and integration-boundary reconciliation
+
+Observed reality: six differential tests pass alongside ten contract and seventeen Legacy characterization tests. `calculate_sleep_core()` returns only canonical results and has no SQLite, Legacy runtime, wall-clock or persistence dependency. The runner supplies active nightly `FeatureRecord` values, loaded profile v1 data, profile revision and a separate run-time freshness label. Storage derives result identity, aggregate lineage/coverage and active selection from `MetricDraft.inputs`. Legacy `_target()` always returns `float`, while the canonical target contract permits `int`; exact storage fingerprints therefore require float normalization in the adapter. These details require compatibility adapters outside pure analytics. The two `analytics` packages conflict under ordinary import resolution, and immutable Legacy prevents a direct edit to its runner.
+
+Plan adjustment: corrected this file's outdated Phase 2 status, recorded input/output adapter responsibilities and kept the package-loading and orchestration seam as explicit Phase 4 prerequisites. No behavioral contract changed. Phase 4 is split into input adaptation, output/persistence compatibility and a separately gated wiring step.
+
+Reason: the pure calculation matches Legacy, but production identity and CLI compatibility depend on preserving exact feature references and runner/storage ownership.
+
 ## Audit result
 
-No target implementation or integration exists. Final feature audit: not started.
+Canonical contracts and pure target calculation exist. Production integration and final feature audit have not started.

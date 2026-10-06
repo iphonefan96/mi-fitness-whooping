@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3 implemented; Phase 4 not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3 complete; Phase 4 boundary reconciled, implementation not started.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Reconcile this checkpoint before specifying Phase 4 integration details. Production still uses Legacy.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. The Phase 4 adapter contract is described below. Production still uses Legacy. Resolve the import-name collision and immutable-runner seam before any production wiring.
 
 ## Rolling-wave phases
 
@@ -15,7 +15,49 @@ Phase 3's pure calculator consumes the Phase 2 contracts and has differential te
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Only completed Phases 1–3 are detailed. Phases 4–6 remain high-level until reconciliation of the pure calculator and its differential evidence. This plan does not schedule the whole project.
+Completed Phases 1–3 and the immediate Phase 4 adapter work are detailed. Phases 5–6 remain high-level. This plan does not schedule the whole project.
+
+## Phase 4 integration boundary — design only
+
+**Current path.** `XiaomiAdapter` reads the external health mirror. `build_nightly()` selects one `main` sleep session for a date, validates stage coverage, computes sleep measurements and lineage, and returns a `Feature`. `put_feature()` stores it in `features` and updates `active_features`; `active_feature_records()` reconstructs the active dated `FeatureRecord` map. The runner loads profile v1 and its revision, calculates dirty/replay dates, then passes the map and profile to `calculate_sleep_day()`. That function resolves dated targets and produces three `MetricDraft`s when a current night exists. The runner assigns stored freshness per metric date and calls `put_result()`. Storage fingerprints result content and ordered feature inputs, writes or reselects a result revision and updates `active_metric_selection`; incremental runs also remove obsolete selections. `status` reads active results and independently evaluates current sleep freshness for its JSON headline.
+
+### Phase 4A — input adapter and tests
+
+**Responsibility/input/output:** a compatibility adapter outside pure sleep takes `(day, nights: dict[date, FeatureRecord], loaded_profile_v1: dict, profile_revision: str)` from orchestration and returns one `SleepCoreInput`. It performs no SQLite read and no main-session selection. It includes only active nightly records from day−14 through day, sorted ascending; all raw sleep observations (`tst_min`, `deep_min`, `rem_min`, `waso_min`, awakening durations, local bedtime) keep `None`, zero and invalid values distinct. It uses exactly `stage_coverage == "COMPLETE"`; the string's other values map to `False`. Each `NightReference` copies date, feature fingerprint, source count/IDs hash, measurement interval and quality flags from the original record. The orchestrator retains the original map for output adaptation.
+
+**Targets and errors:** if the current day has no active night, return an input with no targets and do not inspect any effective target; `load_profile()` has already validated the profile file at runner entry. Otherwise resolve the current target first, then each date day−13…day with the existing `effective_values()` semantics: absent/`None` means 480.0 minutes and default, configured values must be numeric, finite and 300–720 minutes, with the current `sleep_target_min must be within 300..720` error contract. Normalize every resolved target to `float`, matching Legacy `_target()`; `int` would compare numerically equal but could change storage's JSON fingerprint. Produce the complete ordered target ledger. Structural contract errors must surface before calculation; do not silently replace invalid configured targets. A missing active night in the ledger remains a calendar gap, not a zero night. Profile revision is carried unchanged for storage identity; the pure formula does not inspect it.
+
+**Precondition:** choose and test a stable way to load both codebases. `Legacy/analytics` and `src/analytics` are regular packages with the same top-level name; `PYTHONPATH=Legacy:src` hides target `analytics.sleep`, while `PYTHONPATH=src:Legacy` hides Legacy `analytics.algorithms`. Phase 4A may establish a non-colliding target import path or an explicit compatibility package boundary, but it must not mutate `sys.path` dynamically inside the pure calculator or modify Legacy. Record the chosen import contract before Phase 4C.
+
+### Phase 4B — output adapter and persistence compatibility tests
+
+**Responsibility/input/output:** take a `SleepMetricResult` plus the original active-night `FeatureRecord` map used for its input. Return a Legacy-compatible `MetricDraft` for existing `put_result()`. Map metric enum → `name`, calculation status enum → status string, and copy date, value, unit, algorithm ID/version, `OUR_DERIVED`, upstream project/commit and `MEDIUM` confidence. Convert `ScoreMetadata`/`ScoreComponents`, `NeedMetadata` and `DebtMetadata` to the exact current dictionaries, including `None` keys. Resolve each ordered `NightReference` to the original `FeatureRecord` using date and fingerprint, verify the copied lineage fields, and preserve that order in `inputs`. A mismatch fails closed; never substitute a different active revision or synthesize a feature fingerprint.
+
+**Storage ownership:** `put_result()` remains responsible for `input_fingerprint` from metric/date, ordered feature fingerprints, metadata, status, value, profile revision and normalization/algorithm/implementation/contract versions. Its current identity context includes `NORMALIZATION_VERSION="xiaomi-normalization-1"`, `IMPLEMENTATION_VERSION="0.5.0"`, `input_contract_version="foundation-output-1"`, runner `source_policy_version="primary-v1"`, `source_scope="primary"`, `release_channel="production"` and stored `quality_gate_version="foundation-gates-1"`; migration must preserve the existing values and ownership. Storage also owns `source_signals_json` (including nightly `kind`), `input_coverage_json`, unioned flags, measurement bounds, calculation timestamp, run ID, `supersedes_result_id` and `active_metric_selection`. The output adapter does not create IDs, hashes, SQL rows or freshness labels. The runner must continue supplying `profile_revision`, `run_id`, `source_policy_version` and the existing stored `freshness_status` to `put_result()`.
+
+### Phase 4C — gated orchestration wiring
+
+Wire the compatibility path into an orchestration seam **outside immutable `Legacy/`** only after A/B tests prove identical drafts and persistence fingerprints. The installed Legacy runner currently imports `calculate_sleep_day()` directly; no editable hook exists in the snapshot. A concrete external wiring approach therefore needs review before Phase 4C and must not duplicate the entire runner, monkey-patch imports or change CLI/schema behavior without explicit reconciliation. Keep Legacy as the production path until this seam is available and tested.
+
+### Field ownership at this boundary
+
+| Classification | Required fields and owner |
+|---|---|
+| **DOMAIN** | Date; selected-night presence; TST, deep, REM, WASO, awakening durations, local bedtime, stage completeness; dated effective target/default; `NightReference` date/fingerprint/source count/source IDs hash/measurement bounds/quality flags; metric name, value, unit, calculation status, algorithm ID/version, upstream provenance, confidence, result metadata and ordered lineage. These are represented by canonical contracts. |
+| **ORCHESTRATION** | Active dated-night map and selected date/replay scope; loaded profile v1 and profile revision; no-current-night decision; invocation/order of foundation, sleep, recovery and monitoring; run ID, source-policy context and calculation-date `today` used for stored freshness; obsolete-selection cleanup. The profile revision is carried through `SleepCoreInput` for identity but does not affect the pure formula. |
+| **PERSISTENCE** | Original `FeatureRecord` reference used as `MetricDraft.inputs`; `features`/`active_features`, `derived_metric_results`/`active_metric_selection`; `input_fingerprint`, normalization/implementation/quality-gate versions, source scope, release channel, source signals/coverage JSON, unioned flags and interval bounds, `calculated_at`, `source_updated_at`, result ID and superseded ID. Storage receives the runner's run ID, profile revision, source policy and stored freshness. |
+| **PRESENTATION** | Query-time `current_sleep_freshness`, `sleep_headline` value visibility, `last_historical_statuses`, status counts and CLI JSON format. These read published active results and do not enter the calculator or adapters. |
+| **DEFERRED / LEGACY-ONLY** | `FeatureRecord.kind="nightly"` and extra `values` fields retained in original records for compatibility; Legacy `MetricDraft` type behind the output adapter; raw Xiaomi rows, SQLite paths, profile file path, DB IDs and a redesigned freshness policy. These are not new canonical Sleep Core fields. |
+
+### Freshness and compatibility gate
+
+No freshness field is needed by either adapter. The runner must keep supplying stored `HISTORICAL`/`FRESH`/`STALE` to `put_result()` after calculation; the unchanged-input fast path and current `put_result()` fingerprint/reselection behavior remain as characterized. Query-time freshness and the 36-hour headline rule remain in the status/presentation path. Preserve the three metric identities, units, status strings, algorithm/version/provenance, exact nested metadata, ordered lineage, input fingerprint and active revision semantics, and CLI-visible values/status. Exact compatibility is not yet demonstrated for the production runner: the shared package name and immutable runner are integration blockers, and no real-data fixtures exist.
+
+### Phase 4 test strategy (not implemented)
+
+- **Unit adapter tests:** synthetic active `FeatureRecord` map → canonical input equality for 15-date reach, absent/current night, valid/invalid bedtime, missing/zero stages, 14 dated targets, default/effective-dated profile changes, invalid target, float target values and lineage identity; canonical result → exact `MetricDraft` equality, including nested metadata and original ordered `inputs`; reject stale or mismatched lineage. Guard adapter imports and the chosen package-loading path.
+- **Integration tests:** temporary synthetic analytics DB; compare Legacy and adapted drafts' `put_result()` fingerprints, stored columns, source signals/coverage, active selection and revision chain under unchanged rerun, changed historical night, profile revision and freshness-only reselection. Compare no-current-night obsolete selection behavior through the eventual orchestration seam.
+- **Regression tests:** run the synthetic pipeline through old and newly wired orchestration paths and compare metric identities/statuses, counts, CLI `status` JSON/headline under fixed times, stored-vs-query freshness divergence and other existing outputs. Keep the 17 characterization, 10 contract, 6 differential, 62 Legacy unittest and 5 ETL checks unchanged.
 
 ## Completed task — SLEEP-PURE-03
 
@@ -23,7 +65,7 @@ Only completed Phases 1–3 are detailed. Phases 4–6 remain high-level until r
 
 **Verification:** `tests/analytics/test_sleep_core.py` compares observable values, statuses, units, algorithm/provenance identity, metric-specific metadata and ordered lineage with Legacy across synthetic normal, calibration, invalid and historical cases. It checks forbidden dependencies and clock reads. Existing contract and characterization suites remain unchanged.
 
-**Reconciliation:** the existing types carry the required observations and result metadata. Effective-dated profile resolution and invalid profile rejection occur before pure calculation, as designed; Phase 4 must provide that adapter without changing profile v1 semantics. No locked contract or architecture conflict was found. The feature specification's Phase 2 status prose is now stale; this task leaves that file unchanged because no new Legacy behavior required clarification, as the Phase 3 instruction requires. Refresh that status in the next authorized feature-spec reconciliation.
+**Reconciliation:** the existing types carry the required observations and result metadata. Effective-dated profile resolution and invalid profile rejection occur before pure calculation, as designed; Phase 4 must provide that adapter without changing profile v1 semantics. No locked behavioral contract conflict was found. The feature specification's stale Phase 2 status is corrected in this reconciliation.
 
 ## Completed task — SLEEP-CONTRACT-02
 
@@ -73,8 +115,11 @@ Only completed Phases 1–3 are detailed. Phases 4–6 remain high-level until r
 - [x] Reconcile Phase 1 findings, settle the conceptual domain boundary and record freshness ownership in ADR-001.
 - [x] SLEEP-CONTRACT-02: Phase 2 canonical contract types and tests only.
 - [x] Reconcile Phase 2 evidence and implement SLEEP-PURE-03 against the canonical contracts.
-- [ ] Reconcile Phase 3 evidence; then detail Phase 4 integration.
-- [ ] Phases 4–6 as high-level work above.
+- [x] Reconcile Phase 3 evidence and define the Phase 4 adapter boundary.
+- [ ] Phase 4A input adapter, including stable import-path choice and tests.
+- [ ] Phase 4B output adapter and persistence compatibility tests.
+- [ ] Phase 4C orchestration seam and wiring, only after its immutable-Legacy constraint is resolved.
+- [ ] Phases 5–6 as high-level work above.
 
 ## Risks and reconciliation log
 
@@ -111,3 +156,11 @@ Observed: differential tests reproduce Score, Need and Debt outputs on shared sy
 Plan changes: Phase 3 is implemented. Phase 4 remains a separate integration task; profile resolution, result adaptation and persistence compatibility require reconciliation before its detailed plan. Phases 5–6 remain high-level.
 
 Reason: preserving the existing profile and persistence contracts requires an adapter at the boundary, not logic inside pure calculations.
+
+### 2026-10-06 — Phase 3 reconciliation and Phase 4 design
+
+Observed: current runner/storage uses active `FeatureRecord` instances, not merely their identity strings. `put_result()` reads ordered records to derive fingerprint, aggregate lineage/coverage, quality flags and measurement bounds. The canonical result has sufficient references to resolve those original records but cannot recreate them alone. Legacy target resolution yields floats; canonical target inputs can contain integers, which could change serialized fingerprint content. The runner owns run-time freshness and the CLI owns query-time headline freshness. A direct in-place runner edit is barred by immutable Legacy, and ordinary imports cannot load both `analytics` packages in one process by path order alone.
+
+Plan changes: Phase 4A/B are separately testable adapters; Phase 4C is gated on a reviewed external orchestration seam. Fixed the feature specification's Phase 2 status and recorded the exact input/output mapping and ownership table. No formula, schema, CLI, freshness or behavioral contract changed.
+
+Reason: these concrete dependencies determine whether a behavior-preserving integration can keep revision identity and active selection stable.
