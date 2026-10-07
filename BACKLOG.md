@@ -4,9 +4,11 @@ Optional work and known risks outside the current usable-baseline task. A checke
 
 ## Data correctness and production integration
 
+- [ ] Before routine or scheduled use, confirm the intended external profile and database paths and review one full copied-data response locally. The launcher and copy rehearsal do not switch the installed job.
+- [ ] If SQLite backup is used to make a standalone source copy for rehearsal, handle WAL journal mode/sidecars so the Legacy source-file fingerprint stays stable. A copy without sidecars initially returned `SOURCE_CHANGED_DURING_ANALYTICS_RUN`; changing only the copy to DELETE journal mode allowed the rehearsal to pass.
 - [ ] Determine the minimum safe transaction/lock integration for target analytics before production activation. Current `TargetSleepStore` owns a one-date commit and cannot join the Legacy runner's outer transaction.
 - [ ] Reconcile old source corrections beyond the installed ETL's 48-hour overlap, `cn`/`ru` identity collisions and source deletions/tombstones. The separate `mi_fitness_reconcile.py` is a candidate, not the installed production ETL.
-- [ ] Validate full import/rebuild and replay on disposable copies before any production promotion; compare counts, conflicts and active results. Do not run a production backfill as incidental cleanup.
+- [ ] Validate full import/rebuild and replay on disposable copies before any production promotion; compare counts, conflicts and active results. The baseline `run`/rerun/day/history copy rehearsal is complete, but it is not a full rebuild or replay audit. Do not run a production backfill as incidental cleanup.
 - [ ] Decide how to replace remaining Legacy profile v1 loading, feature building/writing, runner/checkpoints and CLI when a target production switch actually requires them. Preserve full-document profile revision and effective-dated sleep targets.
 - [ ] Check stored-versus-query-time freshness behavior before changing it; `FRESH` stored rows can have a `STALE` headline at query time.
 

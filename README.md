@@ -16,10 +16,14 @@ The exact availability on a date depends on source coverage and existing quality
 
 ## Commands
 
+From the repository root, use the included local launcher. It finds both source
+trees itself, so no installation or manual `PYTHONPATH` is needed. Python 3 must
+be available as `python3`.
+
 Run the existing calculations and show a date:
 
 ```sh
-PYTHONPATH=src:Legacy python3 -m mi_fitness_whooping run \
+./mi-fitness-whooping run \
   --source /path/to/health.sqlite --db /path/to/analytics.sqlite \
   --day 2026-09-25
 ```
@@ -30,11 +34,14 @@ It rejects the same file as `--source` and `--db`.
 Read a date or inclusive history without running calculations:
 
 ```sh
-PYTHONPATH=src python3 -m mi_fitness_whooping day --db /path/to/analytics.sqlite --day 2026-09-25
-PYTHONPATH=src python3 -m mi_fitness_whooping history --db /path/to/analytics.sqlite --from 2026-09-21 --to 2026-09-25
+./mi-fitness-whooping day --db /path/to/analytics.sqlite --day 2026-09-25
+./mi-fitness-whooping history --db /path/to/analytics.sqlite --from 2026-09-21 --to 2026-09-25
 ```
 
-These commands require an existing analytics schema v3 and open it read only. They return JSON with `sleep`, `recovery`, `vitals`, `other_metrics`, and selected daily-feature `activity`/`stress`. Calculation `status` and `stored_freshness` are separate. Missing calendar dates appear as `MISSING` in history. All paths must point outside Git when they contain personal data.
+These commands require an existing analytics schema v3 and open it read only. They return JSON with `sleep`, `recovery`, `vitals`, `other_metrics`, and selected daily-feature `activity`/`stress`. Calculation `status` and `stored_freshness` are separate; freshness is the stored label from the calculation run, not a new query-time assessment. Missing calendar dates appear as `MISSING` in history. All paths must point outside Git when they contain personal data.
+
+The launcher uses the unchanged Legacy analytics runner for `run`. It does not
+switch the installed ETL, LaunchAgent, or target Sleep Core into production.
 
 Example selected fields from a **synthetic** run (the command also returns provenance and metadata):
 

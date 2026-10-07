@@ -189,6 +189,26 @@ class BasicDailyPathTests(unittest.TestCase):
             day_report(empty, DAY)
         self.assertEqual(empty.read_bytes(), empty_before)
 
+    def test_local_launcher_works_outside_repo_without_pythonpath(self):
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        launcher = str(ROOT / "mi-fitness-whooping")
+        run = subprocess.run([launcher, "run", "--source", str(self.source),
+                              "--db", str(self.target), "--day", DAY.isoformat()],
+                             cwd=self.temp.name, env=env, check=True,
+                             capture_output=True, text=True)
+        self.assertEqual(json.loads(run.stdout)["run"]["status"], "SUCCESS")
+        day = subprocess.run([launcher, "day", "--db", str(self.target),
+                              "--day", DAY.isoformat()], cwd=self.temp.name,
+                             env=env, check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(day.stdout)["status"], "READY")
+        history = subprocess.run([launcher, "history", "--db", str(self.target),
+                                  "--from", "2026-09-21", "--to", "2026-09-23"],
+                                 cwd=self.temp.name, env=env, check=True,
+                                 capture_output=True, text=True)
+        self.assertEqual([item["status"] for item in json.loads(history.stdout)["days"]],
+                         ["READY", "MISSING", "READY"])
+
 
 if __name__ == "__main__":
     unittest.main()
