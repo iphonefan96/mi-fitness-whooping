@@ -137,11 +137,14 @@ The Phase 4B output adapter turns each `SleepMetricResult` into the existing `Me
 
 The adapters live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented and Phase 4C1 tests the external seam from persisted active nightly features through unchanged `put_result()`. Phase 4C2 adds a Sleep-only orchestrator that accepts loaded nights, profile and explicit run context, and calls a canonical-result sink. Its temporary Legacy storage bridge owns an isolated date transaction, output adaptation and sleep-selection cleanup. The runner's incremental replay clears obsolete active sleep selections when a night disappears; full replay retains them. Both modes preserve historical rows, as characterized. The synthetic path is not the production runner. Phase 4C3 separately addresses any production switch. `Legacy/` and its installed runner remain immutable.
 
+ADR-003 defines the **future**, target-owned analytics result-storage boundary; it has not been implemented. Its first writer is to preserve schema v3 and the current fingerprint, row uniqueness, rerun/reselection, supersession and active-selection behavior. It will receive canonical results and ordered selected-feature lineage rather than Legacy `MetricDraft`/`FeatureRecord`, and use an outer-runner-owned transaction session. In particular, a freshness-only `put_result()` call can return `True` while reselecting an old row whose stored freshness is unchanged. The incremental/full-replay selection difference remains an explicit compatibility policy input, not a Sleep formula. Storage Phase A contracts/tests precede a compatible writer and any synthetic switch; production remains on Legacy.
+
 ## Risks
 
 - **Low:** isolated formula evaluation on synthetic typed inputs.
 - **Medium:** preserving metadata, provenance, profile effective dates, history ordering and storage fingerprints while changing internal types.
 - **High if scope expands:** changing schema, CLI output, source ingestion or user history. Such expansion is outside this feature and requires reconciliation.
+- **High for storage migration:** byte-compatible fingerprint/JSON behavior, older-row reselection and the outer transaction must be proved against synthetic Legacy snapshots before target writes can replace the temporary bridge. ADR-003 is design only.
 
 ## Reconciliation log
 

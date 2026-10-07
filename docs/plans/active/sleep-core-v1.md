@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; Phase 4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; target storage boundary designed in ADR-003; Storage Phase A and Phase 4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A/B adapters handle compatibility; Phase 4C1 proves normal co-imports and temporary-DB persistence. Phase 4C2 now coordinates one already-loaded Sleep date with explicit run context and a temporary Legacy storage bridge. Production still uses Legacy. Reconcile this synthetic slice and Legacy removal debt before any 4C3 production-switch design.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A/B adapters handle compatibility; Phase 4C1 proves normal co-imports and temporary-DB persistence. Phase 4C2 coordinates one already-loaded Sleep date with explicit run context and a temporary Legacy storage bridge. ADR-003 has reconciled the storage contract and chosen schema-compatible target ownership. The next implementation task is Storage Phase A contracts/tests only. Production still uses Legacy; 4C3 remains separately gated.
 
 ## Rolling-wave phases
 
@@ -16,6 +16,17 @@ Phase 3's pure calculator consumes the Phase 2 contracts and has differential te
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
 Completed Phases 1–3 and Phase 4A/B/C1/C2 are detailed. Phase 4C3 and Phases 5–6 remain high-level. This plan does not schedule the whole project.
+
+## Target analytics storage migration — design checkpoint
+
+ADR-003 documents current Sleep-visible result/feature identity, exact fingerprint inputs and canonicalization, row uniqueness, revision/reselection, active selection, freshness, provenance serialization and runner atomicity. **Current:** `LegacySleepStore` still delegates result writes to `analytics.storage.db.put_result()` and owns a synthetic one-date transaction. **Target:** `mi_fitness_whooping.storage` owns compatible persistence against the existing analytics SQLite schema v3, while the future outer runner owns a shared transaction, run lock and replay decision. There is no target storage code yet. Legacy deletion remains an explicit project milestone.
+
+1. **Storage Phase A — contracts and tests, next:** define only the minimum ordered selected-feature reference/result write identity, explicit write context, repository operations and caller-owned session boundary justified by ADR-003. Add synthetic contract cases for fingerprint input ordering and float canonicalization, exact schema row identity, first/unchanged/corrected/reselected writes, profile revision, source-policy-only early return, freshness-only reselection, active clearing under both replay policies and across source scopes, and rollback. The tests should compare observable behavior with immutable Legacy without personal data. Do not create a schema, SQL writer or switch the Sleep sink in Phase A.
+2. **Storage Phase B — compatible target writer:** implement target-owned fingerprinting, serialization, revisions and active selection in the existing schema after Phase A reconciliation. Compare all stored Sleep columns and selection states against Legacy in temporary databases; explicitly verify no Legacy runtime import and transaction composition. Preserve schema/user history; no production write until separate cutover approval.
+3. **Storage Phase C — synthetic Sleep switch:** make the Sleep-only synthetic path publish through target storage/session. Run differential and failure tests; keep Legacy bridge available for comparison until equivalence is audited. No production runner or CLI change.
+4. **Storage Phase D — Sleep Legacy type exit:** replace the Sleep input/output compatibility path's `FeatureRecord`/`MetricDraft` dependence with target selected-feature and result contracts, including target read-side feature ownership as needed. Check lineage, fingerprints and all persistence outputs again. This is not a claim that non-Sleep Legacy dependencies are gone.
+
+Reconcile between phases; later details remain high-level. Phase 4C3 cannot be treated as a simple sink replacement: full-runner shared transaction/run record, lock, dirty-date/replay, non-Sleep metrics, checkpoints and CLI behavior still require separate design and regression proof.
 
 ## Phase 4 integration boundary — synthetic Sleep lifecycle implemented
 
@@ -146,6 +157,9 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 - [x] Phase 4B output adapter and synthetic persistence compatibility tests.
 - [x] Phase 4C1 package separation and synthetic seam proof per ADR-002; then reconcile 4C2 wrapper scope.
 - [x] Phase 4C2 synthetic Sleep-only orchestration and transaction/cleanup characterization.
+- [x] Reconcile target analytics storage ownership and compatibility in ADR-003 (design only).
+- [ ] Storage Phase A minimum contracts and synthetic contract tests.
+- [ ] Storage Phases B–D, each separately reconciled before implementation.
 - [ ] Separately gated 4C3 production-switch design and implementation.
 - [ ] Phases 5–6 as high-level work above.
 
@@ -249,3 +263,11 @@ Observed: ADR-002's distinct package identity works without import aliases. Cano
 Plan changes: 4C2 now owns only one already-loaded Sleep date. `SleepRunContext` supplies date, profile revision, run ID, source policy, stored freshness and cleanup mode; the orchestrator coordinates adapters and pure calculation with no formula, SQL, clock or Legacy import. The temporary `LegacySleepStore` bridge owns output adaptation, unchanged `put_result()`, an isolated transaction and sleep-only obsolete-selection cleanup. It cannot be nested in a caller transaction. No global lock, source replay, run-record lifecycle, CLI or production switch was added. The Legacy dependency/removal table above is the explicit migration debt; Legacy deletion is a milestone, not an implicit permanent compatibility layer.
 
 Reason: the synthetic lifecycle is now testable while keeping the future target storage and full runner boundaries distinct from Legacy.
+
+### 2026-10-07 — Target analytics storage design reconciliation
+
+Observed: Legacy `put_result()` derives a digest from metric/date, ordered feature fingerprints, metadata/status/value and profile/algorithm/normalization/input-contract/implementation versions; source policy is in the database uniqueness key but not the digest. Its active digest/freshness fast path means a source-policy-only change can return unchanged before consulting that uniqueness key. It can report `True` on a freshness-only reselection of the same historical row without updating that row's freshness or run ID. New rows link `supersedes_result_id` to the previously selected row; previously existing rows retain their original link. The runner's global transaction and prior committed `RUNNING` record exceed 4C2's isolated Sleep-date transaction. Incremental missing-night selection clearing and full-replay retention remain observed compatibility behavior.
+
+Plan changes: ADR-003 chooses an existing-schema-compatible first target writer, target ownership of fingerprint/revision/selection logic, and an outer-runner-owned session. Storage Phase A contracts/tests now precede implementation, then a compatible writer, a synthetic Sleep switch and the Legacy type exit. No target storage module, schema, production runner or CLI was added. This design does not begin Storage Phase A or approve 4C3.
+
+Reason: persistent personal history and current readers make a new schema plus writer migration an unnecessarily large first cutover; explicit contracts and differential tests lower the risk of replacing `put_result()` without changing behavior.

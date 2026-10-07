@@ -56,6 +56,8 @@ Architectural debt: ETL and runner have multiple responsibilities; the candidate
 
 These are coarse responsibilities, not a requirement for one file per metric. `src/mi_fitness_whooping/domain/sleep/contracts.py` establishes Sleep Core's canonical input/output types; `src/mi_fitness_whooping/analytics/sleep/core.py` calculates Score, Need and Debt without runtime Legacy, storage or clock dependencies; the input/output adapters under `src/mi_fitness_whooping/integration/sleep/` cross the current feature/result compatibility boundary. `src/mi_fitness_whooping/orchestration/sleep.py` now coordinates one already-loaded date with explicit run context and a canonical-result sink, without SQL, Legacy imports, formulas or clock reads. The temporary `integration/sleep/legacy_persistence.py` bridge adapts and writes through Legacy `put_result()`, owns a single-date transaction and reproduces incremental sleep-selection cleanup with narrow SQL. It rejects an already-open transaction; a future full runner must decide transaction composition. Tests prove synthetic behavior, not production activation. All other boundaries in the table remain proposed.
 
+**Target analytics storage is designed, not implemented.** ADR-003 specifies a target-owned result repository under `mi_fitness_whooping.storage` using the existing analytics SQLite schema v3 for the first compatible writer. It will own result fingerprinting, row identity/revisions, supersession, active selection and clearing. An explicit session will let the future outer runner commit feature, metric, selection and state operations as one transaction; the runner will own lock, replay policy and run-record lifecycle. The existing `SleepResultSink` is only the 4C2 seam and does not establish a permanent Legacy-shaped storage API. No `src/mi_fitness_whooping/storage/` code exists yet. See `docs/adr/ADR-003-target-analytics-storage.md`.
+
 ### Target dependency direction
 
 ```text
@@ -83,6 +85,7 @@ Forbidden target dependencies:
 - Pure analytics → direct SQLite access or platform paths.
 - One feature → another feature's private calculation or `MetricDraft` implementation.
 - Storage → algorithm implementation types where a canonical result contract suffices.
+- Target storage → Legacy `FeatureRecord`, `MetricDraft`, `put_result()` or fingerprint helpers as permanent dependencies. The current integration bridge is explicitly temporary.
 - Canonical domain → ingestion, storage, presentation or platform code.
 - Pure analytics → wall-clock freshness policy. Freshness ownership is decided in `docs/adr/ADR-001-freshness-ownership.md`; Legacy does not yet realize this separation completely.
 
