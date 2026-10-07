@@ -16,9 +16,9 @@ Last verified: 2026-10-07. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/mi_fitness_whooping/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/mi_fitness_whooping/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A/B adapters in `src/mi_fitness_whooping/integration/sleep/` convert active nightly features/profile values to canonical input and results back to the existing Legacy `MetricDraft` persistence interface. Phase 4C1 moved these modules under one distinct target package and proved the persisted synthetic path. Phase 4C2 now adds a Sleep-only orchestrator in `src/mi_fitness_whooping/orchestration/sleep.py` and a temporary Legacy storage bridge; they are exercised only on synthetic data. No production wiring, target-owned storage, full runner or presentation implementation exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/mi_fitness_whooping/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/mi_fitness_whooping/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A/B adapters in `src/mi_fitness_whooping/integration/sleep/` convert active nightly features/profile values to canonical input and results back to the existing Legacy `MetricDraft` persistence interface. Phase 4C1 moved these modules under one distinct target package and proved the persisted synthetic path. Phase 4C2 adds a Sleep-only orchestrator and temporary Legacy storage bridge. Storage Phase B now adds an independently tested target result writer; the orchestrator still uses the Legacy bridge. No production wiring, full runner or presentation implementation exists. No production data migration is underway.
 
-ADR-003 defines the target analytics result-storage boundary: compatible writes to the current schema, target-owned fingerprints/revisions/selections, and a caller-owned transaction session. Storage Phase A now provides **contracts only** in `src/mi_fitness_whooping/storage/contracts.py` and a write-free Sleep projection in `integration/sleep/storage_contract_adapter.py`. The 4C2 synthetic path still publishes through `LegacySleepStore`. No target fingerprint implementation, SQLite writer, production activation or personal data migration exists.
+ADR-003 defines target analytics result-storage ownership. Phase A provides contracts and a write-free Sleep projection. Phase B adds `storage/fingerprint.py` and `storage/sqlite.py`: target-owned compatible digest, schema-v3 result writes, active selection/clearing and explicit caller-owned transactions. Full-row synthetic differential tests pass. The 4C2 synthetic orchestration path still publishes through `LegacySleepStore`; the new writer has no production activation and has not touched personal data.
 
 ## Current public contracts and storage
 
@@ -36,8 +36,9 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Package coexistence and full synthetic storage seam: **4/4 PASS**, including both import-root orders, default/configured float targets, reruns and historical correction.
 - Synthetic Sleep orchestration: **5/5 PASS**, including profile revision, no-night modes, rollback and transaction ownership.
 - Target storage Phase A contracts and Sleep field mapping: **6/6 PASS** on synthetic data.
+- Target storage Phase B differential writer: **5/5 PASS** with full schema-v3 row/selection comparisons.
 - Failing: 0 in these runs. Skipped: 0 reported. No personal database was required.
-- The five ETL checks are a standalone script and are not included in the 129 unittest tests. Target tests use `PYTHONPATH=src:Legacy` as a source-root configuration; the coexistence test proves neither root order controls which package is imported.
+- The five ETL checks are a standalone script and are not included in the 134 unittest tests. Target tests use `PYTHONPATH=src:Legacy` as a source-root configuration; the coexistence test proves neither root order controls which package is imported.
 
 ## Known problems and risks
 
@@ -51,6 +52,6 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 
 ## Next architectural boundary
 
-The next bounded task is **Storage Phase B**: implement and differentially verify a target-owned compatible result writer against synthetic analytics SQLite schema v3. Phase A contracts now exist; only later may the synthetic Sleep path switch away from `LegacySleepStore`. Phase 4C3's production-switch review remains pending; the target writer, full runner, lock and CLI do not exist. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md` through `ADR-003-target-analytics-storage.md`.
+The next bounded task is **Storage Phase C**: switch only the synthetic Sleep orchestration sink from `LegacySleepStore` to the target writer and compare end-to-end synthetic behavior. Phase 4C3's production-switch review remains pending; full runner, lock and CLI do not exist. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md` and `docs/adr/ADR-001-freshness-ownership.md` through `ADR-003-target-analytics-storage.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.
