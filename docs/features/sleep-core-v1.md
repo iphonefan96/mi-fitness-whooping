@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phases 1–3, Phase 4A/B adapters and Phase 4C1 synthetic integration proof complete; Phase 4C2/4C3 not implemented.** Canonical types, a pure calculator and two adapters exist under `src/mi_fitness_whooping/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
+**Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; Phase 4C3 not implemented.** Canonical types, a pure calculator, two adapters and a Sleep-only synthetic orchestrator exist under `src/mi_fitness_whooping/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
 
 ## Goal
 
@@ -81,7 +81,7 @@ The domain result may expose an opaque deterministic calculation-input identity,
 
 ## Module ownership and dependencies
 
-The target analytics/sleep boundary owns the pure calculator and the canonical domain owns input/output contracts. Phase 4A/B compatibility adapters map existing inputs to canonical inputs and results back to unchanged persistence drafts. Orchestration assembling history and presentation displaying published results remain proposed target responsibilities; no target production integration exists.
+The target analytics/sleep boundary owns the pure calculator and the canonical domain owns input/output contracts. Phase 4A/B compatibility adapters map existing inputs to canonical inputs and results back to unchanged persistence drafts. A Sleep-only target orchestrator now coordinates an already-loaded date with explicit run context and a temporary Legacy storage bridge. Full history/replay orchestration and presentation remain proposed target responsibilities; no target production integration exists.
 
 Pure analytics may import canonical date/quality/lineage contracts and receive effective profile values through an explicit boundary. It must not access SQLite, CLI/presentation, Xiaomi-specific records/paths or another feature's implementation-specific `MetricDraft`. A separate transitional output adapter may import Legacy `MetricDraft` solely to preserve the unchanged persistence interface; that dependency must not enter the canonical domain or pure calculator.
 
@@ -135,7 +135,7 @@ The Phase 4A input adapter accepts the runner-shaped dated active `nightly` `Fea
 
 The Phase 4B output adapter turns each `SleepMetricResult` into the existing `MetricDraft` shape using the **same original active `FeatureRecord` objects** in result lineage order. It maps enum values to current strings and metric-specific metadata dataclasses to the exact existing nested dictionaries. It verifies each `NightReference` against the original feature's identity and quality fields. It does not calculate result IDs, fingerprints, freshness or active selection. The current `put_result()` path retains those duties, with run context to be supplied by orchestration. This adapter is a transitional boundary; it does not make Legacy's algorithm-defined `MetricDraft` a canonical-domain dependency.
 
-The adapters now live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented and a synthetic Phase 4C1 test exercises the external seam from persisted active nightly features through the adapters and pure calculator to unchanged `put_result()`. Both packages import in one process independent of source-root order. Phase 4C2/4C3 separately address orchestration and any production switch. `Legacy/` and its installed runner remain immutable.
+The adapters live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented and Phase 4C1 tests the external seam from persisted active nightly features through unchanged `put_result()`. Phase 4C2 adds a Sleep-only orchestrator that accepts loaded nights, profile and explicit run context, and calls a canonical-result sink. Its temporary Legacy storage bridge owns an isolated date transaction, output adaptation and sleep-selection cleanup. The runner's incremental replay clears obsolete active sleep selections when a night disappears; full replay retains them. Both modes preserve historical rows, as characterized. The synthetic path is not the production runner. Phase 4C3 separately addresses any production switch. `Legacy/` and its installed runner remain immutable.
 
 ## Risks
 
@@ -192,6 +192,14 @@ Observed reality: target contracts, pure calculation and both adapters now impor
 Plan adjustment: Phase 4C1 is complete. The proof establishes sleep persistence compatibility on synthetic active features but does not implement a runner, source replay, lock, obsolete-selection cleanup or CLI path. Phase 4C2/4C3 remain separate. No locked formula, schema, freshness or presentation contract changed.
 
 Reason: the tested import and storage boundary is now concrete, while full orchestration remains unimplemented.
+
+### 2026-10-07 — Phase 4C2 synthetic Sleep orchestration
+
+Observed reality: Legacy runner characterization confirms two no-current-night outcomes. Incremental replay clears active sleep selections; full replay skips obsolete cleanup and retains them. Neither deletes historical result rows. A failure during sleep metric persistence rolls back the runner's in-flight transaction; its separate run record becomes `FAILED`. Profile revision participates in every stored sleep fingerprint, so a changed profile revision can revise all three metrics even if Score's value is unchanged.
+
+Plan adjustment: a target Sleep-only orchestrator now accepts already-loaded nights/profile and explicit date, profile revision, run ID, source policy, stored freshness and cleanup mode. A temporary Legacy storage bridge adapts results, owns an isolated single-date transaction and applies only sleep-selection cleanup. It rejects an already-open caller transaction. The target still lacks source replay, global lock/run records, target-owned storage, CLI and production wiring. Existing formulas and locked contracts did not change.
+
+Reason: this reproduces the observed synthetic Sleep lifecycle without treating Legacy storage or types as permanent target architecture.
 
 ## Audit result
 

@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3, Phase 4A/B adapters and Phase 4C1 synthetic seam proof complete; Phase 4C2/4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; Phase 4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A projects active nightly records and loaded profile values into `SleepCoreInput`. Phase 4B converts results back to Legacy-compatible `MetricDraft` values. Phase 4C1 now proves normal co-imports and a temporary-DB path from stored active features to stored active results. Production still uses Legacy. Reconcile 4C1 before specifying the Phase 4C2 wrapper in detail.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A/B adapters handle compatibility; Phase 4C1 proves normal co-imports and temporary-DB persistence. Phase 4C2 now coordinates one already-loaded Sleep date with explicit run context and a temporary Legacy storage bridge. Production still uses Legacy. Reconcile this synthetic slice and Legacy removal debt before any 4C3 production-switch design.
 
 ## Rolling-wave phases
 
@@ -15,9 +15,9 @@ Phase 3's pure calculator consumes the Phase 2 contracts and has differential te
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Completed Phases 1–3 and Phase 4A/B/C1, plus the immediate Phase 4C2 boundary, are detailed. Phases 5–6 remain high-level. This plan does not schedule the whole project.
+Completed Phases 1–3 and Phase 4A/B/C1/C2 are detailed. Phase 4C3 and Phases 5–6 remain high-level. This plan does not schedule the whole project.
 
-## Phase 4 integration boundary — adapters and synthetic proof implemented
+## Phase 4 integration boundary — synthetic Sleep lifecycle implemented
 
 **Current path.** `XiaomiAdapter` reads the external health mirror. `build_nightly()` selects one `main` sleep session for a date, validates stage coverage, computes sleep measurements and lineage, and returns a `Feature`. `put_feature()` stores it in `features` and updates `active_features`; `active_feature_records()` reconstructs the active dated `FeatureRecord` map. The runner loads profile v1 and its revision, calculates dirty/replay dates, then passes the map and profile to `calculate_sleep_day()`. That function resolves dated targets and produces three `MetricDraft`s when a current night exists. The runner assigns stored freshness per metric date and calls `put_result()`. Storage fingerprints result content and ordered feature inputs, writes or reselects a result revision and updates `active_metric_selection`; incremental runs also remove obsolete selections. `status` reads active results and independently evaluates current sleep freshness for its JSON headline.
 
@@ -57,11 +57,13 @@ ADR-002 records the package identity and external seam. The installed Legacy run
 
 **4C1 — completed package separation and synthetic seam proof.** Target domain/analytics/integration modules now live under `src/mi_fitness_whooping/`, with the old target locations removed. A clean subprocess imports both `analytics.algorithms.foundations` from Legacy and `mi_fitness_whooping.analytics.sleep.core` from target in either source-root order. Four new tests exercise a temporary analytics DB seeded through existing `put_feature()`, read original nights with `active_feature_records()`, load profile v1 with `load_profile()`, run input adapter → pure Sleep Core → output adapter → real `put_result()` with explicit synthetic run ID, profile revision, `primary-v1` source policy and fixed stored `HISTORICAL` freshness. They compare Legacy and target drafts and stored fields for default 480.0 and effective-dated 450.0 targets, first insert, unchanged rerun and corrected historical input. No personal data, production entrypoint, formula, schema or CLI changed.
 
-**4C2 — target orchestration wrapper, after 4C1 reconciliation.** Add a bounded external sleep caller with explicit run context and transaction ownership on synthetic data. Verify no-night obsolete-selection cleanup, profile revision, clock-controlled stored freshness, rollback and lock/error behavior. Decide how this wrapper composes with unchanged non-sleep calculations and replay before widening it. A sleep-only wrapper does not establish full runner or CLI parity.
+**4C2 — completed synthetic Sleep orchestrator.** `src/mi_fitness_whooping/integration/sleep/run_context.py` defines the Legacy-independent `SleepRunContext(day, profile_revision, run_id, source_policy_version, stored_freshness, cleanup_obsolete)` shared by orchestration and its sink. `src/mi_fitness_whooping/orchestration/sleep.py` exposes that context and `run_sleep_day(nights, profile, context, sink)`. It accepts already-loaded nightly features, adapts inputs, calls the pure calculator and publishes canonical results. It imports no Legacy type, SQLite, CLI or clock. `src/mi_fitness_whooping/integration/sleep/legacy_persistence.py` is explicitly **TEMPORARY MIGRATION DEBT**: it adapts outputs to original `FeatureRecord`/`MetricDraft` lineage, uses unchanged Legacy `put_result()`, owns an isolated one-date transaction and performs narrow sleep-only `active_metric_selection` cleanup SQL. It rejects a connection with an open transaction so it cannot silently commit the caller's work. Existing `put_result()` remains the sole fingerprint/revision writer.
+
+Three new Legacy characterization tests pin the missing-night and rollback rules before implementation. Incremental replay deletes active sleep selections when the current night disappears; full replay (`metric_force_full`) skips cleanup and retains those selections. Both preserve historical result rows. A failure on the second sleep metric rolls back the Legacy runner's in-flight feature/metric transaction; its separate run record becomes `FAILED`. The synthetic bridge reproduces the relevant Sleep-date rollback and no-night selection outcomes, not global runner run-record behavior. Five new orchestrator tests compare Legacy and target persisted first/unchanged/corrected/profile-revision states, exercise both no-night cleanup modes, rollback on a second metric failure, transaction ownership and dependency guards. `cleanup_obsolete` is supplied by the caller; the orchestrator does not infer dirty/replay policy or read a clock. Locking belongs to a future outer runner and was not copied into this module.
 
 **4C3 — production switch, separately gated.** Reconcile the entire existing runner lifecycle: source generation/checkpoints, dirty-date expansion and 90-day/CUSUM replay, feature writes, all metric ordering, lock and transaction, run records, obsolete selection, counters/errors and current CLI JSON/headline. Choose an opt-in activation and rollback only after full synthetic regression. Do not copy the whole runner blindly or change the installed ETL. No implementation detail for 4C3 is locked by this plan.
 
-**Proof limit:** 4C1 proves the three sleep metrics' names, statuses, units, versions, metadata, exact input fingerprints, revision chain and active selection through real storage in the tested synthetic cases. It does not prove production source detection, full runner counters, no-night obsolete cleanup, query-time freshness or CLI-visible output. Stored freshness is passed explicitly by the test fixture and stays outside pure calculation per ADR-001. A later feature may migrate Recovery, Monitoring or Activity into the same project package and outer seam; none is part of 4C1.
+**Proof limit:** 4C1/4C2 prove the three sleep metrics' names, statuses, units, versions, metadata, exact input fingerprints, revision chain, active selection, missing-night behavior and isolated Sleep-date rollback in tested synthetic cases. They do not prove production source detection, global runner transaction/run records, dirty-date replay, lock, query-time freshness or CLI-visible output. Stored freshness is supplied explicitly and stays outside pure calculation per ADR-001. A later feature may migrate Recovery, Monitoring or Activity into the same project package and outer seam; none is part of 4C2.
 
 ### Field ownership at this boundary
 
@@ -80,8 +82,8 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 ### Phase 4 test strategy and remaining checks
 
 - **Unit adapter tests — implemented for 4A/B:** synthetic active `FeatureRecord` map → canonical input equality for 15-date reach, absent/current night, valid/invalid bedtime, missing/zero stages, 14 dated targets, default/effective-dated profile changes, invalid target, float target values and lineage identity; canonical result → exact `MetricDraft` equality, including nested metadata and original ordered `inputs`; reject stale or mismatched lineage. Phase 4C1 now tests combined package loading separately.
-- **Integration tests — implemented for 4B/C1 scope:** temporary synthetic analytics DB comparisons of Legacy and adapted drafts' `put_result()` fingerprints, stored columns, source signals/coverage, active selection and revision chain under unchanged rerun, changed historical night and freshness-only reselection; 4C1 additionally starts from persisted active features and loaded profile v1. Profile-revision compatibility is still covered by Phase 1 characterization; compare it through the eventual orchestration path. Compare no-current-night obsolete selection behavior in 4C2.
-- **Regression tests:** run the synthetic pipeline through old and newly wired orchestration paths and compare metric identities/statuses, counts, CLI `status` JSON/headline under fixed times, stored-vs-query freshness divergence and other existing outputs. Keep the 17 characterization, 10 contract, 6 differential, 62 Legacy unittest and 5 ETL checks unchanged.
+- **Integration tests — implemented for 4B/C1/C2 scope:** temporary synthetic analytics DB comparisons of Legacy and adapted drafts' `put_result()` fingerprints, stored columns, source signals/coverage, active selection and revision chain under unchanged rerun, changed historical night and freshness-only reselection; 4C1 starts from persisted active features and loaded profile v1; 4C2 adds explicit context, profile revision, no-night cleanup modes and rollback. Full runner/CLI compatibility remains unproven.
+- **Regression tests:** before any production switch, compare full synthetic runner paths, metric identities/statuses, counts, CLI `status` JSON/headline under fixed times, stored-vs-query freshness divergence and other existing outputs. Keep the 20 characterization, 10 contract, 6 differential, 62 Legacy unittest and 5 ETL checks unchanged.
 
 ## Completed task — SLEEP-PURE-03
 
@@ -143,8 +145,26 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 - [x] Phase 4A input adapter and tests; stable combined import-path choice deferred by explicit Phase 4A scope.
 - [x] Phase 4B output adapter and synthetic persistence compatibility tests.
 - [x] Phase 4C1 package separation and synthetic seam proof per ADR-002; then reconcile 4C2 wrapper scope.
-- [ ] Phase 4C2 synthetic orchestration wrapper and separately gated 4C3 production switch.
+- [x] Phase 4C2 synthetic Sleep-only orchestration and transaction/cleanup characterization.
+- [ ] Separately gated 4C3 production-switch design and implementation.
 - [ ] Phases 5–6 as high-level work above.
+
+## Temporary Legacy dependency and removal map
+
+**Legacy deletion is an explicit project milestone.** No Legacy import in the target package is permanent. The 4C2 target orchestration and pure layers import none; the following dependencies are **TEMPORARY COMPATIBILITY DEPENDENCIES**, not target architecture contracts. Their removal milestones are ownership boundaries, not a detailed schedule for the whole project.
+
+| Current Legacy symbol or behavior | Why required now | Target replacement owner | Removal milestone |
+|---|---|---|---|
+| `FeatureRecord` in output adapter and `legacy_persistence.py` | Preserve original active-night identity, provenance and ordered storage inputs. | Canonical history/feature read model plus target storage adapter. | Target feature/storage boundary migration before Legacy deletion. |
+| `MetricDraft` in output adapter | Match current persistence-facing result shape and fingerprint inputs. | Target storage write contract over canonical `SleepMetricResult`. | Target analytics storage migration before Legacy deletion. |
+| `put_result()` in `legacy_persistence.py` | Preserve exact fingerprint, revision and active-selection behavior. | Target analytics result repository. | Target analytics storage migration before Legacy deletion. |
+| Direct obsolete-selection SQL in `legacy_persistence.py` | Legacy runner has no reusable delete-selection API; incremental no-night cleanup must be preserved. | Target storage selection repository. | Target analytics storage migration before Legacy deletion. |
+| `cleanup_obsolete` run-context mode | Preserves the observed incremental versus full-replay selection distinction; it is a compatibility policy, not a permanent Sleep domain rule. | Target orchestration replay policy and target storage selection repository. | Full target runner and selection-policy migration before Legacy deletion. |
+| `load_profile()` and `active_feature_records()` in the synthetic caller/tests | Supply validated profile revision and original selected nights. Target orchestration accepts their values but does not import either symbol. | Target platform/config and canonical history storage readers. | Profile and storage read migrations before production replacement. |
+| Legacy source adapter, feature builders, dirty-date/checkpoint/replay, run records, lock and transaction | Current production runner owns full pipeline; none is imported by 4C2 orchestration. | Target ingestion, feature preparation, orchestration and platform/config. | Full target runner lifecycle before any production switch. |
+| Legacy `__main__` CLI/status and ETL/source ingestion | Installed analytics presentation and source import remain Legacy-owned. | Target presentation and ingestion, respectively. | Separate presentation/ingestion migrations before Legacy deletion. |
+
+No dependency above is classified as permanent. The temporary bridge owns an isolated one-date transaction and rejects nesting; it cannot substitute for the runner's broader transaction. Lock acquisition and source replay remain outside 4C2. A 4C3 production switch cannot proceed by importing the old runner as a structural target dependency; reconcile full pipeline parity and removal sequencing first.
 
 ## Risks and reconciliation log
 
@@ -221,3 +241,11 @@ Observed: all target modules now import under `mi_fitness_whooping`; the old `sr
 Plan changes: Phase 4C1 is complete. The immediate next step is reconciliation of the 4C2 external sleep wrapper's transaction, no-night cleanup, profile revision, fixed-time freshness and error/lock responsibilities. Keep 4C3 production entrypoint/CLI activation separately gated; no target runner, scheduler or source replay path exists. ADR-002's approved package identity and seam were followed without a material decision change.
 
 Reason: a persisted synthetic vertical slice proves the import and sleep storage boundary, while production runner lifecycle remains outside this phase.
+
+### 2026-10-07 — Phase 4C1 reconcile and Phase 4C2 synthetic orchestrator
+
+Observed: ADR-002's distinct package identity works without import aliases. Canonical domain and pure Sleep Core still import no Legacy; only the output/persistence adapters use compatibility types. Phase 4C1 persisted fingerprints, revisions and active selections match Legacy. Newly characterized Legacy runner behavior adds an explicit replay-mode distinction: after a current night disappears, incremental replay clears active sleep selections while full replay retains them; historical rows remain. Failure during a sleep metric write rolls back the runner's in-flight transaction, with the separately committed run record marked `FAILED`. A changed profile revision revises all three sleep result identities even if a formula output is unchanged.
+
+Plan changes: 4C2 now owns only one already-loaded Sleep date. `SleepRunContext` supplies date, profile revision, run ID, source policy, stored freshness and cleanup mode; the orchestrator coordinates adapters and pure calculation with no formula, SQL, clock or Legacy import. The temporary `LegacySleepStore` bridge owns output adaptation, unchanged `put_result()`, an isolated transaction and sleep-only obsolete-selection cleanup. It cannot be nested in a caller transaction. No global lock, source replay, run-record lifecycle, CLI or production switch was added. The Legacy dependency/removal table above is the explicit migration debt; Legacy deletion is a milestone, not an implicit permanent compatibility layer.
+
+Reason: the synthetic lifecycle is now testable while keeping the future target storage and full runner boundaries distinct from Legacy.

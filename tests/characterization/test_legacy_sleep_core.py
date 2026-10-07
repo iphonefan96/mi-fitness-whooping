@@ -7,9 +7,11 @@ The import path points at Legacy as an oracle; this file is not a target impleme
 from __future__ import annotations
 
 import sys
+import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -302,6 +304,80 @@ class SleepDebtContracts(unittest.TestCase):
 
 
 class PersistenceAndFreshnessContracts(unittest.TestCase):
+    def test_runner_removes_active_sleep_selection_when_current_night_disappears(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "health.sqlite"
+            target = Path(directory) / "analytics.sqlite"
+            synthetic_source(source)
+            self.assertEqual(run(source, target)["status"], "SUCCESS")
+            with closing(sqlite3.connect(target)) as db:
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM active_metric_selection
+                    WHERE metric_name IN ('sleep.score','sleep.need_min','sleep.debt_min')""").fetchone()[0], 3)
+                historical = db.execute("""SELECT COUNT(*) FROM derived_metric_results
+                    WHERE metric_name IN ('sleep.score','sleep.need_min','sleep.debt_min')""").fetchone()[0]
+                self.assertEqual(historical, 3)
+            with closing(sqlite3.connect(source)) as db, db:
+                db.execute("DELETE FROM sleep_stages WHERE source_record_id='s1'")
+                db.execute("DELETE FROM sleep_sessions WHERE source_record_id='s1'")
+                db.execute("UPDATE daily_summary SET updated_at='2026-09-25T03:00:00Z'")
+                db.execute("UPDATE source_databases SET last_fingerprint='night-removed'")
+                db.execute("INSERT INTO etl_runs VALUES (?,?,?)",
+                           ("run2", "2026-09-25T03:00:00Z", "SUCCESS"))
+            self.assertEqual(run(source, target)["status"], "SUCCESS")
+            with closing(sqlite3.connect(target)) as db:
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM active_features
+                    WHERE kind='nightly'""").fetchone()[0], 0)
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM active_metric_selection
+                    WHERE metric_name IN ('sleep.score','sleep.need_min','sleep.debt_min')""").fetchone()[0], 0)
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM derived_metric_results
+                    WHERE metric_name IN ('sleep.score','sleep.need_min','sleep.debt_min')""").fetchone()[0], historical)
+
+    def test_full_replay_retains_old_sleep_selection_when_night_disappears(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "health.sqlite"
+            target = Path(directory) / "analytics.sqlite"
+            profile = Path(directory) / "profile.json"
+            synthetic_source(source)
+            self.assertEqual(run(source, target)["status"], "SUCCESS")
+            with closing(sqlite3.connect(source)) as db, db:
+                db.execute("DELETE FROM sleep_stages WHERE source_record_id='s1'")
+                db.execute("DELETE FROM sleep_sessions WHERE source_record_id='s1'")
+                db.execute("UPDATE daily_summary SET updated_at='2026-09-25T03:00:00Z'")
+                db.execute("UPDATE source_databases SET last_fingerprint='night-removed'")
+                db.execute("INSERT INTO etl_runs VALUES (?,?,?)",
+                           ("run2", "2026-09-25T03:00:00Z", "SUCCESS"))
+            profile.write_text(json.dumps({"schema_version": 1, "values": [
+                {"field": "sleep_target_min", "value": 450,
+                 "effective_from": "2026-09-25"}]}), encoding="utf-8")
+            self.assertEqual(run(source, target, profile)["status"], "SUCCESS")
+            with closing(sqlite3.connect(target)) as db:
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM active_features
+                    WHERE kind='nightly'""").fetchone()[0], 0)
+                # Legacy skips obsolete-selection cleanup on metric_force_full.
+                self.assertEqual(db.execute("""SELECT COUNT(*) FROM active_metric_selection
+                    WHERE metric_name IN ('sleep.score','sleep.need_min','sleep.debt_min')""").fetchone()[0], 3)
+
+    def test_runner_rolls_back_when_sleep_persistence_fails_mid_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "health.sqlite"
+            target = Path(directory) / "analytics.sqlite"
+            synthetic_source(source)
+            original_put_result = put_result
+
+            def fail_on_need(db, draft, **kwargs):
+                if draft.name == "sleep.need_min":
+                    raise RuntimeError("synthetic sleep write failure")
+                return original_put_result(db, draft, **kwargs)
+
+            with patch("analytics.runners.runner.put_result", side_effect=fail_on_need):
+                with self.assertRaisesRegex(RuntimeError, "synthetic sleep write failure"):
+                    run(source, target)
+            with closing(sqlite3.connect(target)) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM active_features").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM derived_metric_results").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM active_metric_selection").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT status FROM analytics_runs").fetchone()[0], "FAILED")
+
     def test_runner_freshness_is_written_at_run_time_but_headline_is_query_time(self):
         first_clock = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
         later_clock = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
@@ -320,14 +396,14 @@ class PersistenceAndFreshnessContracts(unittest.TestCase):
             synthetic_source(source)
             with patch("analytics.runners.runner.datetime", fixed_datetime(first_clock)):
                 self.assertEqual(run(source, target)["status"], "SUCCESS")
-            with sqlite3.connect(target) as db:
+            with closing(sqlite3.connect(target)) as db:
                 stored = db.execute("""SELECT r.freshness_status,r.status FROM active_metric_selection a
                     JOIN derived_metric_results r ON r.result_id=a.result_id
                     WHERE r.metric_name='sleep.need_min'""").fetchone()
                 self.assertEqual(stored, ("FRESH", "REDUCED"))
             with patch("analytics.runners.runner.datetime", fixed_datetime(later_clock)):
                 self.assertEqual(run(source, target)["status"], "NO NEW ANALYTICS INPUT")
-            with sqlite3.connect(target) as db:
+            with closing(sqlite3.connect(target)) as db:
                 self.assertEqual(db.execute("""SELECT r.freshness_status FROM active_metric_selection a
                     JOIN derived_metric_results r ON r.result_id=a.result_id
                     WHERE r.metric_name='sleep.need_min'""").fetchone()[0], "FRESH")
