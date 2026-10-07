@@ -209,6 +209,23 @@ class BasicDailyPathTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in json.loads(history.stdout)["days"]],
                          ["READY", "MISSING", "READY"])
 
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_cli_run_reports_unwritable_destination_as_failed_json(self):
+        locked = Path(self.temp.name) / "locked"
+        locked.mkdir()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT / "src")
+        locked.chmod(0o555)
+        try:
+            completed = subprocess.run([sys.executable, "-m", "mi_fitness_whooping", "run",
+                                        "--source", str(self.source),
+                                        "--db", str(locked / "analytics.sqlite")],
+                                       cwd=ROOT, env=env, capture_output=True, text=True)
+        finally:
+            locked.chmod(0o755)
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(json.loads(completed.stdout)["status"], "FAILED")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-10-07, after the local target-runner integration built on `a17250615ac1c09997f978765bffd819656da1c1`. The installed macOS ETL and LaunchAgent were not changed.
+Last verified: 2026-10-07, installed-job compatibility check on top of accepted base `a9e7f9955a7cf03ce1235559e27106ede8205a8e`. The installed macOS ETL and LaunchAgent were not changed.
 
 ## What runs locally
 
@@ -20,10 +20,19 @@ Synthetic differential tests compare target and Legacy across first run, unchang
 
 On disposable SQLite backups of the external databases, independent Legacy and target runs returned the same run summary, selected feature/result rows, active selections, dated answer and seven-day history. An unchanged repeat returned `NO NEW ANALYTICS INPUT`. A separate CLI rehearsal on fresh copies passed `run`, repeat, `day` and `history` without Legacy on the import path. Copies passed SQLite integrity checks; the source-copy hash was stable, and read commands left the analytics-copy hash stable. No personal values or copies entered Git. The source copy was changed to DELETE journal mode after backup so SQLite sidecar creation could not trip the source-file fingerprint guard. Read-only backup can update live `-shm` coordination-file metadata; the live main database files retained their metadata.
 
+## Installed job compatibility (read-only check, 2026-10-07)
+
+- **No scheduled analytics job is installed.** The only LaunchAgent, `com.rus.mifitness.etl`, runs `run_production_macos.sh` → `run_mi_fitness_etl.sh` → `mi_fitness_etl.py` every 6 h with `/opt/homebrew/bin/python3`; stdout/stderr go to `/dev/null`, and the wrapper tees ETL output into `~/Library/Application Support/MiFitnessETL/logs`. The installed plist and three scripts are byte-identical to `Legacy/`. Analytics is run manually through Legacy `python -m analytics`.
+- **Paths:** Legacy analytics defaults `--source` to `~/Library/Application Support/MiFitnessETL/data/health.sqlite` and `--db` to `/Users/rus/Documents/temp/mi_fitness_analytics/analytics.sqlite`. Target `run` has no defaults and requires both flags. Both use `<db>.lock` with the same `flock`, so they exclude each other on one database.
+- **Database continuity, both directions (synthetic):** target continuing a Legacy-produced database returns `NO NEW ANALYTICS INPUT` and then matches Legacy after a correction. Legacy `run` on a target-produced database returns `NO NEW ANALYTICS INPUT`, and Legacy `status` reads it as `READY` with zero sanity warnings, so rollback to Legacy needs no migration.
+- **Profile:** the same profile v1 loader, optional `--profile`, built-in defaults when omitted.
+- **CLI output:** Legacy `run` prints only the run summary; target `run` prints `{"run": summary, "day": selected day}`. Target has `run`/`day`/`history`; Legacy also has `init`, `validate` and `status` (query-time freshness headlines, sanity counts, last run), which target does not provide. Missing source is `SKIPPED` with exit 0 in both. Fixed: target `run` now reports environmental `OSError`s (e.g. unwritable destination) as JSON `FAILED` with exit 1, like Legacy, instead of a traceback.
+- **Interpreter:** target needs Python ≥ 3.11 (`enum.StrEnum`). The launcher calls `python3` from `PATH`; under a launchd-style minimal `PATH` this is `/usr/bin/python3` 3.9.6 and the import fails. A scheduled job must pin a ≥ 3.11 interpreter, as the installed ETL already does.
+
 ## Remaining risks and work
 
-- The installed ETL/LaunchAgent still uses its existing configuration. Switching that job requires a separate reviewed deployment decision and verification of the intended profile and paths.
+- The installed ETL/LaunchAgent still uses its existing configuration. Scheduling target analytics is a new job, not a switch: it needs a reviewed decision on the trigger (after ETL in the same wrapper or a separate LaunchAgent), explicit `--source`/`--db`/`--profile`, a pinned Python ≥ 3.11, log destination, and whether Legacy `status` stays the status/headline command.
 - Legacy-preserved cleanup gap: a date that loses both nightly and daily features, or loses a night during an algorithm-version rerun, keeps its previous active metric selections.
 - Legacy-compatible incremental discovery uses source-file fingerprint and a 48-hour overlap; arbitrary old source corrections and deletions may need separate reconciliation. The candidate reconciliation ETL is not installed.
 - Stored freshness is assigned at calculation time. Historical rows can retain an old label on an unchanged rerun; the local `day`/`history` commands report stored freshness and do not replace Legacy's query-time headline policy.
-- The target runner is a behavior-preserving port of the existing baseline, including its POSIX `flock` and schema-v3 assumptions. A full installed-job compatibility audit has not been done. Optional refinements remain in `BACKLOG.md`.
+- The target runner is a behavior-preserving port of the existing baseline, including its POSIX `flock` and schema-v3 assumptions. Optional refinements remain in `BACKLOG.md`.

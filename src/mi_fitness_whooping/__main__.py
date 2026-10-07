@@ -34,7 +34,7 @@ def main() -> int:
             answer = day_report(args.db, args.day)
         else:
             answer = history_report(args.db, args.start, args.end)
-    except (FileNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(json.dumps({"status": "FAILED", "error": str(exc)}))
         return 1
     print(json.dumps(answer, sort_keys=True, ensure_ascii=False))
