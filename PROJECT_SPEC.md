@@ -4,6 +4,12 @@
 
 Build a trustworthy, local-first history and analytics system for Xiaomi/Mi Fitness health data. Its primary consumer is the owner of the health data; future CLI, UI and API clients should be able to present results without owning calculation rules.
 
+## Current delivery target (2026-10-07)
+
+Deliver a usable WHOOP-like **baseline from the existing Mi Fitness export and the calculations already present in Legacy**. Show sleep and Recovery plus the heart-rate/RHR, SpO2, respiratory, stress and activity outputs that the current code and source data actually support. Identify missing, reduced-quality and stale results. SpO2 is blood oxygen saturation, not a blood test; Xiaomi data does not provide measured HRV. Do not add new formulas, device integrations or a new UI to reach this baseline.
+
+Keep the installed ingestion and analytics working while adapting useful Legacy behavior into the target package. The target Sleep Core and reader now serve the local target `run`; installed scheduling has not switched. The active plan defines the remaining integration. Optional improvements go to `BACKLOG.md`.
+
 ## Core outcomes
 
 - Ingest Xiaomi/Mi Fitness exports safely while preserving the source data and its provenance.
@@ -27,7 +33,7 @@ Orchestration coordinates these steps. Storage preserves the canonical history a
 - Repeated processing of unchanged input should not duplicate active results. Historical corrections must be detectable and able to revise affected analytics.
 - Missing, unverified or vendor-derived signals must not be presented as independently measured signals. In particular, ordinary heart-rate samples do not establish HRV.
 - Privacy-sensitive source and derived data remain outside the repository; synthetic data supports automated tests.
-- Significant features follow contract → implementation → verification → integration → audit. A migration initially preserves existing observable behavior unless a separately specified feature changes it.
+- Significant behavior changes preserve explicit contracts and receive proportional verification. A migration initially preserves existing observable behavior unless a separately specified feature changes it. A separate audit is needed before production activation or after substantial integration, not after each small implementation step.
 
 ## Global locked contract policy
 
@@ -42,6 +48,6 @@ The migration must treat existing source formats, deployed persistent schemas/lo
 
 ## Definition of project success
 
-The system can safely rebuild or reconcile canonical history from supported exports, reproduce versioned analytics with provenance and quality status, recover from interrupted runs, and supply stable results to presentation clients. Acceptance is demonstrated by contract, regression, persistence and end-to-end tests using non-personal fixtures, plus an independent architecture audit.
+For the current baseline, supported existing data reaches usable date/history analytics for sleep, Recovery and the available vitals/activity outputs, with honest quality and freshness information. Relevant synthetic, compatibility and end-to-end checks pass before a production switch. The broader reconciliation, historical completeness and future-client goals above remain long-term goals rather than prerequisites for each baseline task.
 
 This document states long-term product intent. `CURRENT_STATE.md` records what exists today; `ARCHITECTURE.md` distinguishes the current implementation from proposed boundaries; feature specifications own metric behavior.
