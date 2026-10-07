@@ -89,6 +89,33 @@ class TargetBaselineRunTests(unittest.TestCase):
         self.assertEqual(self.run_pair()[1]["status"], "SUCCESS")
         self.assertEqual(day_report(self.target, date(2026, 9, 26))["sleep"], {})
 
+    def test_algorithm_version_rerun_with_removed_night_matches_legacy_cleanup(self):
+        self.assertEqual(self.run_pair()[1]["status"], "SUCCESS")
+        for path in (self.legacy, self.target):
+            with closing(sqlite3.connect(path)) as db:
+                with db:
+                    db.execute("UPDATE analytics_state SET value='older' "
+                               "WHERE key='monitoring_algorithm_version'")
+        with closing(sqlite3.connect(self.source)) as db:
+            with db:
+                db.execute("DELETE FROM sleep_sessions WHERE source_record_id='s26'")
+                db.execute("UPDATE daily_summary SET updated_at='2026-09-29T08:00:00Z' "
+                           "WHERE local_date='2026-09-25'")
+                db.execute("UPDATE source_databases SET last_fingerprint='algorithm-rerun'")
+        self.assertEqual(self.run_pair()[1]["status"], "SUCCESS")
+
+    def test_target_continues_legacy_analytics_database(self):
+        legacy_run(self.source, self.legacy)
+        self.target.write_bytes(self.legacy.read_bytes())
+        self.assertEqual(target_run(self.source, self.target)["status"],
+                         "NO NEW ANALYTICS INPUT")
+        with closing(sqlite3.connect(self.source)) as db:
+            with db:
+                db.execute("UPDATE daily_summary SET resting_hr=80,"
+                           "updated_at='2026-09-28T08:00:00Z' WHERE local_date='2026-09-24'")
+                db.execute("UPDATE source_databases SET last_fingerprint='continued'")
+        self.assertEqual(self.run_pair()[1]["status"], "SUCCESS")
+
     def test_effective_profile_and_shared_transaction_rollback(self):
         profile = self.root / "profile.json"
         profile.write_text(json.dumps({"schema_version": 1, "values": [

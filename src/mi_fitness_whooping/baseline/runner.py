@@ -229,7 +229,7 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                             night_reader.selected_nights(session, day), profile,
                             SleepRunContext(day, profile_revision, run_id,
                                             SOURCE_POLICY_VERSION, fresh,
-                                            cleanup_obsolete=not force_full),
+                                            cleanup_obsolete=not metric_force_full),
                             sleep_store,
                         )
                         metrics_calculated += sum(outcome.changed for outcome in sleep_store.outcomes)
