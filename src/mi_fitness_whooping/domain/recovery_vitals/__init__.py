@@ -1,0 +1,1 @@
+"""Recovery/vitals domain contracts."""

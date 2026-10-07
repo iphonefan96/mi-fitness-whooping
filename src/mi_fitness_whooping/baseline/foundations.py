@@ -8,8 +8,11 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+from mi_fitness_whooping.analytics.recovery_vitals import core as vitals
+from mi_fitness_whooping.domain.recovery_vitals.contracts import VitalsResult
+from mi_fitness_whooping.integration.recovery_vitals.adapter import vitals_daily, vitals_night
 
-OPENSTRAP_COMMIT = "0441ef9e6fc6d5681c309ce6341911285e829f20"
+
 VITALS_COMMIT = "fb3a837a017567b0fbc3c0c2b5666f8db4acad21"
 PULSE_COMMIT = "1f8975cfc8298b67482a7e37dba576b9ea8b62db"
 FOUNDATION_ALGORITHM_VERSION = "foundation-2"
@@ -63,17 +66,25 @@ def _valid_number(value: object, lo: float | None = None, hi: float | None = Non
     return num
 
 
+def _vitals_draft(result: VitalsResult, records: dict[tuple[str, str], FeatureRecord]) -> MetricDraft:
+    return MetricDraft(result.name, result.day, result.value, result.unit, result.status,
+                       result.algorithm_id, result.algorithm_version, result.source_type,
+                       result.upstream_project, result.upstream_commit,
+                       tuple(records[ref.kind, ref.fingerprint] for ref in result.lineage),
+                       result.metadata, result.confidence)
+
+
 def direct_metrics(day: date, night: FeatureRecord | None, daily: FeatureRecord | None) -> list[MetricDraft]:
+    # Vitals are calculated by the Recovery/vitals component; this keeps the
+    # existing persistence order around the sleep duration metrics.
+    records = {(f.kind, f.fingerprint): f for f in (night, daily) if f is not None}
+    vitals_n = vitals_night(night) if night else None
+    vitals_d = vitals_daily(daily) if daily else None
     results: list[MetricDraft] = []
     if night:
         v = night.values
         inp = (night,)
-        rhr = _valid_number(v.get("night_rhr_bpm"), 25, 240)
-        results.append(_metric("rhr.nightly", day, rhr, "bpm", "VALID" if rhr is not None else "INSUFFICIENT_DATA",
-                               "rhr.openstrap_nocturnal_v1", inputs=inp, upstream_project="OpenStrap",
-                               upstream_commit=OPENSTRAP_COMMIT,
-                               metadata={"method": "minimum_30min_mean", "required_minutes_per_window": 27,
-                                         "measured_minutes": v.get("night_hr_measured_minutes")}, confidence="MEDIUM"))
+        results.append(_vitals_draft(vitals.night_heart_rate(day, vitals_n), records))
         tib = _valid_number(v.get("time_in_bed_min"), 0, 1440)
         complete = v.get("stage_coverage") == "COMPLETE" and "SENSOR_GAP" not in night.quality_flags
         tst = _valid_number(v.get("tst_min"), 0, 1440) if complete else None
@@ -111,41 +122,12 @@ def direct_metrics(day: date, night: FeatureRecord | None, daily: FeatureRecord 
                                    "sleep.stage_share_v1", inputs=inp,
                                    metadata={"denominator": denom_name, "numerator": f"{stage}_min"}))
 
-        spo2_count = int(v.get("spo2_samples") or 0)
-        results.append(_metric("spo2.nightly_count", day, float(spo2_count), "samples", "VALID",
-                               "spo2.observed_count_v1", inputs=inp, metadata={"observed": True}, confidence="HIGH"))
-        span = _valid_number(v.get("spo2_span_min"), 0)
-        results.append(_metric("spo2.nightly_span_min", day, span, "min", "VALID" if span is not None else "INSUFFICIENT_DATA",
-                               "spo2.observed_span_v1", inputs=inp, metadata={"not_time_under_threshold": True}))
-        for suffix, field, minimum in (("mean", "spo2_mean_pct", 6), ("min", "spo2_min_pct", 12),
-                                        ("p10", "spo2_p10_pct", 12)):
-            value = _valid_number(v.get(field), 0, 100)
-            status = "VALID" if value is not None else "INSUFFICIENT_DATA"
-            results.append(_metric(f"spo2.nightly_{suffix}", day, value, "%", status,
-                                   "spo2.night_distribution_v1", inputs=inp,
-                                   metadata={"sample_count": spo2_count, "required_samples": minimum,
-                                             "observed_span_min": span, "required_span_min": 240},
-                                   confidence="MEDIUM" if suffix == "mean" else "LOW"))
+        results.extend(_vitals_draft(r, records) for r in vitals.night_spo2(day, vitals_n))
+        results.append(_vitals_draft(vitals.night_respiratory(day, vitals_n), records))
 
-        resp = _valid_number(v.get("respiratory_rate_bpm"), 4, 60)
-        results.append(_metric("respiratory.nightly_mean", day, resp, "breaths/min",
-                               "REDUCED" if resp is not None else "INSUFFICIENT_DATA",
-                               "respiratory.xiaomi_night_mean_v1", inputs=inp,
-                               source_type="VENDOR_DERIVED",
-                               metadata={"vendor_aggregate_count": 1 if resp is not None else 0,
-                                         "raw_breath_count": None, "coverage": "UNKNOWN",
-                                         "source_metric": v.get("respiratory_provenance")}, confidence="LOW"))
-
-    rhr = _valid_number(daily.values.get("daily_rhr_bpm"), 25, 240) if daily else None
-    rhr_input = (daily,) if daily and rhr is not None else ()
-    if rhr is None and night:
-        rhr = _valid_number(night.values.get("rhr_bpm"), 25, 240)
-        rhr_input = (night,) if rhr is not None else ()
-    if rhr is not None:
-        results.append(_metric("rhr.vendor_daily", day, rhr, "bpm", "VALID", "xiaomi.vendor_rhr_v1",
-                               source_type="VENDOR_DERIVED", inputs=rhr_input,
-                               metadata={"source_metric": "daily_summary.resting_hr",
-                                         "method": "vendor_daily"}, confidence="MEDIUM"))
+    vendor = vitals.vendor_daily_rhr(day, vitals_n, vitals_d)
+    if vendor is not None:
+        results.append(_vitals_draft(vendor, records))
     return results
 
 

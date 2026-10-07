@@ -15,6 +15,19 @@ The runner owns one analytics lock and transaction. `TargetSleepStore` accepts t
 - Independent Legacy and target runs on two disposable copies of an external analytics database produced matching run summaries, 4,000 feature rows, 98,473 result rows, both active-selection tables, a dated answer and seven-day history. A repeat returned `NO NEW ANALYTICS INPUT`. No personal values were emitted.
 - The switched local CLI was rehearsed on fresh disposable copies: `run`, repeat, `day` and `history` passed without Legacy on its import path. Both copied databases passed integrity checks; the source-copy hash was unchanged and read-only responses did not change the analytics-copy hash.
 
+## Current stage: Recovery/vitals component (2026-10-08)
+
+The baseline above is complete and runs manually. The next architectural result is an independent Recovery/vitals component built from the **existing** calculations, in the same shape as Sleep Core: typed domain input → pure calculation → integration adapter → runner-owned persistence.
+
+- **In scope:** `recovery.score` and the direct vitals `rhr.nightly`, `rhr.vendor_daily`, `spo2.nightly_{count,span_min,mean,min,p10}` and `respiratory.nightly_mean`.
+- **Out of scope for this stage:** vitals baselines/deviations (`baseline.{rhr,spo2,respiratory}.*`, `*.deviation`) because monitoring consumes them as foundation drafts; trends (shared across all series); monitoring/CUSUM; any formula, status, unit, metadata, version or HRV change.
+- **Boundary:** the calculation has no SQLite, CLI, clock, profile parsing, Legacy or `baseline` import. Profile target resolution and feature-record mapping live in the integration adapter. The runner keeps the lock, transaction and persistence order.
+- **Acceptance:** complete feature/result/selection rows still equal Legacy in the existing differential scenarios (first run, rerun, missing date, correction, removed night, effective profile target, rollback); a direct characterization compares the component with Legacy `calculate_recovery_day` and `direct_metrics` on varied synthetic histories, including measured-HRV inputs the Xiaomi source does not provide; an import guard proves calculation independence.
+
+**Result:** implemented in `domain/recovery_vitals`, `analytics/recovery_vitals` and `integration/recovery_vitals`; `baseline/recovery.py` is removed and the vitals branch of `baseline.foundations.direct_metrics` calls the component. All acceptance checks pass; no stored value, status, unit, metadata, version or result order changed.
+
+**Activity finding:** Legacy has no dedicated activity calculation. Daily activity and vendor stress are presented from the selected daily feature; `trend.steps.*` and `trend.stress_vendor.*` come from the shared trend function used by vitals and sleep series. An Activity component would therefore be a new abstraction without its own calculation. Extracting the shared baselines/deviations/trends family (and with it the monitoring coupling) is the remaining analytics boundary and needs a user decision before it starts.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
