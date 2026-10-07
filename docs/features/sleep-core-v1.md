@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phases 1–3 and Phase 4A/B adapters complete; Phase 4C integration designed but not implemented.** Canonical types, a pure calculator and two unwired adapters exist under `src/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
+**Phases 1–3, Phase 4A/B adapters and Phase 4C1 synthetic integration proof complete; Phase 4C2/4C3 not implemented.** Canonical types, a pure calculator and two adapters exist under `src/mi_fitness_whooping/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
 
 ## Goal
 
@@ -37,7 +37,7 @@ Legacy currently crosses some of these proposed boundaries: `calculate_sleep_day
 
 ## Canonical input contract
 
-The concrete Phase 2 types live in `src/domain/sleep/contracts.py`. `SleepCoreInput` holds the target date, a tuple of `SelectedNight` values ordered by date, `EffectiveSleepTarget` values for the debt ledger, and an opaque profile revision for reproducibility. With a current night, targets cover exactly 14 dates; without one, an empty target tuple is allowed because Legacy returns no metrics before inspecting profile targets. Up to 14 prior nights plus the current night can be represented. `SelectedNight` carries the selected main night's required observations and `stage_complete`; `NightReference` carries immutable source lineage. The contract does not select a main sleep session or resolve a profile file.
+The concrete Phase 2 types live in `src/mi_fitness_whooping/domain/sleep/contracts.py`. `SleepCoreInput` holds the target date, a tuple of `SelectedNight` values ordered by date, `EffectiveSleepTarget` values for the debt ledger, and an opaque profile revision for reproducibility. With a current night, targets cover exactly 14 dates; without one, an empty target tuple is allowed because Legacy returns no metrics before inspecting profile targets. Up to 14 prior nights plus the current night can be represented. `SelectedNight` carries the selected main night's required observations and `stage_complete`; `NightReference` carries immutable source lineage. The contract does not select a main sleep session or resolve a profile file.
 
 | Category | Minimum information and semantics |
 |---|---|
@@ -75,7 +75,7 @@ The domain result may expose an opaque deterministic calculation-input identity,
 | Class | Items |
 |---|---|
 | **LOCKED BEHAVIOR** | The three metric names, formulas/rounding, units, status branch order, history/quality gates, 480-minute fallback, target range rejection, relevant metadata meanings, current headline visibility and current persistent compatibility. No formula or freshness redesign in V1. |
-| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity, represented by the Phase 2 types in `src/domain/sleep/contracts.py` and consumed by the Phase 3 calculator. Phase 4A/B adapters exist but are not wired to production. |
+| **STABLE CONTRACT** | Dated current/history measurements, per-date effective targets and fallback flags, stage completeness, missing-versus-zero distinction, ordered input lineage, calculation result fields and algorithm/provenance identity, represented by the Phase 2 types in `src/mi_fitness_whooping/domain/sleep/contracts.py` and consumed by the Phase 3 calculator. Phase 4A/B adapters and a synthetic integration test exist but are not wired to production. |
 | **INTERNAL IMPLEMENTATION DETAIL** | Legacy private helpers and dataclass layout, dictionary construction strategy, SQLite query implementation and numeric `result_id` values. Existing database schema and observable active-selection behavior are still locked at integration. |
 | **DEFERRED DECISION** | A new freshness persistence/query policy; optional domain hash representation; future physiological Sleep Need, formula improvements, other sleep metrics and broader storage redesign. |
 
@@ -135,7 +135,7 @@ The Phase 4A input adapter accepts the runner-shaped dated active `nightly` `Fea
 
 The Phase 4B output adapter turns each `SleepMetricResult` into the existing `MetricDraft` shape using the **same original active `FeatureRecord` objects** in result lineage order. It maps enum values to current strings and metric-specific metadata dataclasses to the exact existing nested dictionaries. It verifies each `NightReference` against the original feature's identity and quality fields. It does not calculate result IDs, fingerprints, freshness or active selection. The current `put_result()` path retains those duties, with run context to be supplied by orchestration. This adapter is a transitional boundary; it does not make Legacy's algorithm-defined `MetricDraft` a canonical-domain dependency.
 
-The adapters exist in `src/integration/sleep/`, but their final import location is not yet implemented. `Legacy/analytics` and `src/analytics` are both regular packages named `analytics`; a single ordinary `PYTHONPATH` order hides one. ADR-002 selects `mi_fitness_whooping` as the future target package and an external seam from existing active nightly features through the adapters and pure calculator to unchanged `put_result()`. Phase 4C1 must implement and test those decisions on synthetic data; Phase 4C2/4C3 separately address orchestration and any production switch. `Legacy/` and its installed runner remain immutable.
+The adapters now live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented and a synthetic Phase 4C1 test exercises the external seam from persisted active nightly features through the adapters and pure calculator to unchanged `put_result()`. Both packages import in one process independent of source-root order. Phase 4C2/4C3 separately address orchestration and any production switch. `Legacy/` and its installed runner remain immutable.
 
 ## Risks
 
@@ -184,6 +184,14 @@ Observed reality: the input and output adapters exist, and synthetic `put_result
 Plan adjustment: ADR-002 selects `mi_fitness_whooping` as the future target package and an external seam using the existing active-night map and storage. Phase 4C is split into package/seam proof, a synthetic orchestration wrapper, and a separately gated production switch. No target package rename, orchestration entrypoint or production switch has occurred. No locked behavioral contract changed.
 
 Reason: package identity and runner lifecycle must be explicit before a behavior-preserving integration can be claimed.
+
+### 2026-10-07 — Phase 4C1 package and synthetic seam proof
+
+Observed reality: target contracts, pure calculation and both adapters now import as `mi_fitness_whooping.*`; old target package locations were removed. A clean subprocess loads Legacy `analytics` and the new package in either source-root order. Temporary databases seeded through unchanged `put_feature()` and read through `active_feature_records()` demonstrate Legacy-equal drafts and persisted results for default 480.0 and effective-dated 450.0 targets, first write, unchanged rerun and historical correction. The test fixture supplies run ID, profile revision, source policy and stored `HISTORICAL` status explicitly; the adapters and pure calculator read no clock.
+
+Plan adjustment: Phase 4C1 is complete. The proof establishes sleep persistence compatibility on synthetic active features but does not implement a runner, source replay, lock, obsolete-selection cleanup or CLI path. Phase 4C2/4C3 remain separate. No locked formula, schema, freshness or presentation contract changed.
+
+Reason: the tested import and storage boundary is now concrete, while full orchestration remains unimplemented.
 
 ## Audit result
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import json
-import sys
 import unittest
 from dataclasses import asdict, fields
 from dataclasses import FrozenInstanceError
@@ -13,9 +12,8 @@ from pathlib import Path
 
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-sys.path.insert(0, str(SRC))
 
-from domain.sleep.contracts import (  # noqa: E402
+from mi_fitness_whooping.domain.sleep.contracts import (  # noqa: E402
     CalculationStatus,
     DebtMetadata,
     EffectiveSleepTarget,
@@ -200,7 +198,7 @@ class SleepOutputContractTests(unittest.TestCase):
                          {"as_of", "now", "freshness_status", "db_path"})
 
     def test_contract_module_has_no_forbidden_dependencies(self):
-        path = SRC / "domain" / "sleep" / "contracts.py"
+        path = SRC / "mi_fitness_whooping" / "domain" / "sleep" / "contracts.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
         imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
                     for alias in node.names}

@@ -10,7 +10,7 @@ import math
 import statistics
 from datetime import timedelta
 
-from domain.sleep.contracts import (
+from mi_fitness_whooping.domain.sleep.contracts import (
     CalculationStatus,
     DebtMetadata,
     NeedMetadata,

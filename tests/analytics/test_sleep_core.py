@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import sys
 import unittest
 from dataclasses import asdict, replace
 from datetime import date, timedelta
@@ -11,16 +10,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "Legacy"))
 
 from analytics.algorithms.foundations import FeatureRecord  # noqa: E402
 from analytics.algorithms.sleep import _target, calculate_sleep_day  # noqa: E402
-from domain.sleep.contracts import (  # noqa: E402
+from mi_fitness_whooping.domain.sleep.contracts import (  # noqa: E402
     EffectiveSleepTarget, NightReference, SelectedNight, SleepCoreInput,
 )
-from src.analytics.sleep.core import calculate_sleep_core  # noqa: E402
+from mi_fitness_whooping.analytics.sleep.core import calculate_sleep_core  # noqa: E402
 
 
 DAY = date(2026, 1, 20)
@@ -190,7 +186,7 @@ class SleepCoreDifferentialTests(unittest.TestCase):
         self.assertNotEqual(first[2].lineage, revised[2].lineage)
 
     def test_pure_module_has_no_forbidden_dependencies_or_clock_reads(self):
-        path = ROOT / "src" / "analytics" / "sleep" / "core.py"
+        path = ROOT / "src" / "mi_fitness_whooping" / "analytics" / "sleep" / "core.py"
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
@@ -201,7 +197,8 @@ class SleepCoreDifferentialTests(unittest.TestCase):
                      "argparse", "pathlib", "os", "time"}
         self.assertFalse({name.split(".")[0] for name in imported} & forbidden)
         self.assertLessEqual(imported,
-                             {"__future__", "math", "statistics", "datetime", "domain.sleep.contracts"})
+                             {"__future__", "math", "statistics", "datetime",
+                              "mi_fitness_whooping.domain.sleep.contracts"})
         self.assertFalse(any("Legacy" in name for name in imported))
         self.assertNotIn(".now(", source)
         self.assertNotIn(".utcnow(", source)

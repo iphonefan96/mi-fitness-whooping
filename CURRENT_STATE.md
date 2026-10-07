@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy Mi Fitness baseline`); workflow documentation: `8d93233` (`docs: add project development workflow`); Phase 1 characterization: `ebf425b` (`test: characterize legacy sleep contracts`).
+Last verified: 2026-10-07. Repository baseline: `a0250f9` (`chore: import legacy Mi Fitness baseline`); workflow documentation: `8d93233` (`docs: add project development workflow`); Phase 1 characterization: `ebf425b` (`test: characterize legacy sleep contracts`).
 
 ## Working in the immutable Legacy snapshot
 
@@ -16,7 +16,7 @@ Last verified: 2026-10-06. Repository baseline: `a0250f9` (`chore: import legacy
 
 ## In progress / not implemented
 
-Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A's input adapter converts already loaded nightly features and profile values into the canonical input. Phase 4B now provides an output adapter in `src/integration/sleep/output_adapter.py` that maps canonical results to the existing Legacy `MetricDraft` persistence interface. Synthetic fingerprint and persistence comparisons pass. No production wiring, target storage, orchestration or presentation implementation exists. No production data migration is underway.
+Phase 1 of the first behavior-preserving migration has synthetic characterization tests outside `Legacy/`. Phase 2 provides canonical Sleep Core input/output types in `src/mi_fitness_whooping/domain/sleep/contracts.py`. Phase 3 provides pure Score, Need and Debt calculations in `src/mi_fitness_whooping/analytics/sleep/core.py`, with synthetic differential tests against Legacy. Phase 4A/B adapters in `src/mi_fitness_whooping/integration/sleep/` convert active nightly features/profile values to canonical input and results back to the existing Legacy `MetricDraft` persistence interface. Phase 4C1 moved these modules under one distinct target package and added a temporary-database integration comparison through unchanged Legacy storage. No production wiring, target storage, orchestration or presentation implementation exists. No production data migration is underway.
 
 ## Current public contracts and storage
 
@@ -31,8 +31,9 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Pure Sleep Core differential tests: **6/6 PASS** across representative synthetic score, need, debt and lineage cases.
 - Sleep Core input adapter tests: **9/9 PASS** on synthetic Legacy-shaped active features and profile values.
 - Sleep Core output adapter/fingerprint/persistence compatibility tests: **7/7 PASS** on temporary synthetic analytics databases.
+- Package coexistence and full synthetic storage seam: **4/4 PASS**, including both import-root orders, default/configured float targets, reruns and historical correction.
 - Failing: 0 in these runs. Skipped: 0 reported. No personal database was required.
-- The five ETL checks are a standalone script and are not included in the 111 unittest tests.
+- The five ETL checks are a standalone script and are not included in the 115 unittest tests. Moved target tests use `PYTHONPATH=src:Legacy` as a source-root configuration; the coexistence test proves neither root order controls which package is imported.
 
 ## Known problems and risks
 
@@ -40,11 +41,11 @@ The existing ETL/analytics CLIs, profile JSON v1, source/analytics SQLite schema
 - Production and candidate reconciliation semantics differ. Production per-DB overlap does not establish complete detection of arbitrary old corrections.
 - Source/change and freshness handling spans several layers; full CLI output compatibility and installed scheduling are not comprehensively characterized by automated tests.
 - Sleep-core characterization found that a stored metric can retain `FRESH` after query-time status becomes `STALE`; a freshness-only persistence call reselects the existing row without changing its label. This is recorded behavior, not an authorized policy change.
-- Legacy and target both currently define a regular top-level `analytics` package; simple path ordering prevents importing both by their usual names in one process. Legacy runner directly imports the old sleep function and is immutable. ADR-002 selects a future `mi_fitness_whooping` target package and external synthetic integration seam; neither has been implemented, and production remains on Legacy.
+- The old top-level package collision is resolved: `Legacy/analytics` and `src/mi_fitness_whooping` import together under their distinct names. Legacy runner still directly imports its old sleep function and is immutable. The synthetic 4C1 seam is a test only; no target production runner or CLI exists.
 - Absolute paths and macOS/POSIX assumptions remain in Legacy deployment files. The snapshot has no real-data fixtures or package manifest.
 
 ## Next architectural boundary
 
-The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 have characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4A/B adapters exist and synthetic persistence fingerprints match Legacy. ADR-002 resolves the target package and external seam **in design only**; Phase 4C1 has not started. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md`, `docs/adr/ADR-001-freshness-ownership.md` and `docs/adr/ADR-002-target-package-and-integration-seam.md`.
+The first proposed migration is the source-independent **sleep core**: `sleep.score`, `sleep.need_min`, `sleep.debt_min` and only their required typed nightly/history inputs. Phases 1–3 characterized Legacy, established canonical contracts and implemented a pure calculator. Phase 4A/B adapters exist, and Phase 4C1 now proves a synthetic path from persisted active features through those adapters to persisted active results. Phase 4C2's external orchestration wrapper and Phase 4C3's production-switch review remain pending. Freshness changes remain separate. See `docs/features/sleep-core-v1.md`, `docs/plans/active/sleep-core-v1.md`, `docs/adr/ADR-001-freshness-ownership.md` and `docs/adr/ADR-002-target-package-and-integration-seam.md`.
 
 Update this file when a substantial feature completes, public behavior changes, architecture changes materially or an audit finds drift. Proposed boundaries in `ARCHITECTURE.md` must not be reported here as implemented until they exist.

@@ -10,7 +10,7 @@ import math
 from datetime import date, timedelta
 from typing import Mapping, Protocol
 
-from domain.sleep.contracts import (
+from mi_fitness_whooping.domain.sleep.contracts import (
     EffectiveSleepTarget,
     NightReference,
     SelectedNight,

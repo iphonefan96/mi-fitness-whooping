@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import sys
 import unittest
 from dataclasses import asdict
 from datetime import date, timedelta
@@ -11,14 +10,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "Legacy"))
 
 from analytics.algorithms.foundations import FeatureRecord  # noqa: E402
 from analytics.algorithms.sleep import _target as legacy_target  # noqa: E402
 from analytics.algorithms.sleep import calculate_sleep_day  # noqa: E402
-from domain.sleep.contracts import SleepCoreInput  # noqa: E402
-from integration.sleep.input_adapter import adapt_sleep_input  # noqa: E402
+from mi_fitness_whooping.domain.sleep.contracts import SleepCoreInput  # noqa: E402
+from mi_fitness_whooping.integration.sleep.input_adapter import adapt_sleep_input  # noqa: E402
 
 
 DAY = date(2026, 1, 20)
@@ -152,14 +149,15 @@ class SleepInputAdapterTests(unittest.TestCase):
         self.assertEqual(asdict(one), asdict(two))
 
     def test_adapter_imports_only_domain_and_standard_library(self):
-        source = (ROOT / "src" / "integration" / "sleep" / "input_adapter.py").read_text(encoding="utf-8")
+        source = (ROOT / "src" / "mi_fitness_whooping" / "integration" / "sleep" /
+                  "input_adapter.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
                     for alias in node.names}
         imported.update(node.module for node in ast.walk(tree)
                         if isinstance(node, ast.ImportFrom) and node.module)
         self.assertLessEqual(imported, {"__future__", "math", "datetime", "typing",
-                                        "domain.sleep.contracts"})
+                                        "mi_fitness_whooping.domain.sleep.contracts"})
         self.assertNotIn(".now(", source)
         self.assertNotIn(".utcnow(", source)
 

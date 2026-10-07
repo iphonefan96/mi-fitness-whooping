@@ -11,7 +11,7 @@ from datetime import date
 from typing import Mapping
 
 from analytics.algorithms.foundations import FeatureRecord, MetricDraft
-from domain.sleep.contracts import NightReference, SleepMetricResult
+from mi_fitness_whooping.domain.sleep.contracts import NightReference, SleepMetricResult
 
 
 def _original_feature(

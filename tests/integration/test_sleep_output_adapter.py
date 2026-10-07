@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ast
-import sqlite3
-import sys
 import tempfile
 import unittest
 from dataclasses import replace
@@ -13,16 +11,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "Legacy"))
 
 from analytics.algorithms.foundations import FeatureRecord, MetricDraft  # noqa: E402
 from analytics.algorithms.sleep import calculate_sleep_day  # noqa: E402
 from analytics.storage.db import connect, migrate, put_result  # noqa: E402
-from integration.sleep.input_adapter import adapt_sleep_input  # noqa: E402
-from integration.sleep.output_adapter import adapt_sleep_result  # noqa: E402
-from src.analytics.sleep.core import calculate_sleep_core  # noqa: E402
+from mi_fitness_whooping.integration.sleep.input_adapter import adapt_sleep_input  # noqa: E402
+from mi_fitness_whooping.integration.sleep.output_adapter import adapt_sleep_result  # noqa: E402
+from mi_fitness_whooping.analytics.sleep.core import calculate_sleep_core  # noqa: E402
 
 
 DAY = date(2026, 1, 20)
@@ -125,7 +120,7 @@ class OutputAdapterUnitTests(unittest.TestCase):
             adapt_sleep_result(result, nights | {DAY: wrong_kind})
 
     def test_output_adapter_has_only_compatibility_imports_and_no_clock(self):
-        path = ROOT / "src" / "integration" / "sleep" / "output_adapter.py"
+        path = ROOT / "src" / "mi_fitness_whooping" / "integration" / "sleep" / "output_adapter.py"
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
@@ -133,7 +128,8 @@ class OutputAdapterUnitTests(unittest.TestCase):
         imported.update(node.module for node in ast.walk(tree)
                         if isinstance(node, ast.ImportFrom) and node.module)
         self.assertLessEqual(imported, {"__future__", "dataclasses", "datetime", "typing",
-                                        "analytics.algorithms.foundations", "domain.sleep.contracts"})
+                                        "analytics.algorithms.foundations",
+                                        "mi_fitness_whooping.domain.sleep.contracts"})
         self.assertNotIn(".now(", source)
         self.assertNotIn(".utcnow(", source)
 
