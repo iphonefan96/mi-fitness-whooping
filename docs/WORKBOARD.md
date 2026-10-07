@@ -1,11 +1,14 @@
 # Workboard
 
-This board records the current handoff for the Mi Fitness analytics baseline. Only the integrator edits it. Project behavior belongs in `CURRENT_STATE.md`; deferred work belongs in `BACKLOG.md`.
+This board records the current handoff for the Mi Fitness analytics. The writer records its handoff here; only the integrator records a new accepted base after an independent PASS. Project behavior belongs in `CURRENT_STATE.md`; deferred work belongs in `BACKLOG.md`.
 
-- **Last accepted base:** `444f1799406e5913bb2aa421fd55217ba7c00ab8` from `agent/claude-target-run` — **PASS** after independent Codex review. The CLI `OSError` fix returns JSON `FAILED` with exit 1; no confirmed regression.
-- **Review evidence:** `git diff --check` clean; 6 focused and 50 total synthetic integration tests passed on the exact commit. A separate synthetic target → Legacy run returned `NO NEW ANALYTICS INPUT`; Legacy `status` returned `READY` with zero sanity warnings. Known installed ETL plist and files match the Legacy copies byte for byte. No personal database or live job was run.
-- **Handing off from:** `agent/codex-review`. The recipient obtains the handoff SHA from that branch's HEAD and the report, not from this file.
-- **Status:** Review complete. No next implementation or scheduling task is authorized in this handoff. Wait for the user's deployment decision before changing the installed ETL, LaunchAgent, live databases or schedule.
-- **Verification limit:** The repository and known installed ETL files do not prove that no other scheduler exists on the host; inspect deployment state again before any activation.
+- **Last accepted base:** `444f1799406e5913bb2aa421fd55217ba7c00ab8` from `agent/claude-target-run` — **PASS** after independent Codex review (recorded by the integrator in `73a45459d3f1cf0085af03b2d70e4749d5338ab1`).
+- **Handing off from:** `agent/claude-target-run` (Claude, writer). **Review range:** `73a45459d3f1cf0085af03b2d70e4749d5338ab1..HEAD` of that branch; the exact HEAD SHA is in the handoff report. Not yet independently reviewed:
+  1. Manual-run decision: scheduling deferred to `BACKLOG.md`; README states Python ≥ 3.11 and that `--source`/`--db`/`--profile` have no defaults. Docs only.
+  2. Independent Recovery/vitals component (`domain|analytics|integration/recovery_vitals`): `recovery.score` and direct vitals moved out of `baseline`; `baseline/recovery.py` removed. No stored value, status, unit, metadata, version or result order changed.
+  3. Handoff rules for multi-commit stages (`AGENTS.md`, `EXECUTION_PROCESS.md`, this board).
+- **Evidence from the writer:** full suite 159 passed / 2,764 subtests; randomized Legacy characterization of the component (mutations of a weight and a sample gate were caught); existing full-table Legacy differential scenarios unchanged; one disposable real-data copy: Legacy and target tables equal, repeat `NO NEW ANALYTICS INPUT`, copy removed. No live database, ETL, LaunchAgent or schedule was changed.
+- **Status:** Recovery/vitals stage complete; waiting for independent review of the range.
+- **Next item (needs user decision):** Activity has no dedicated existing calculation (vendor daily fields plus shared trends), so no Activity component was created. The remaining analytics boundary is the shared baselines/deviations/trends family together with the monitoring coupling; start it only if the user selects it. Scheduling remains in `BACKLOG.md`.
 
-At the next handoff, review the previous branch's exact commit before writing. Leave one coherent commit and report its SHA, changed files, tests and remaining blockers. One agent writes at a time.
+The receiving agent reviews the exact range before writing. One agent writes at a time.
