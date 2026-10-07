@@ -139,6 +139,23 @@ The current adapters live in `src/mi_fitness_whooping/integration/sleep/`. ADR-0
 
 ADR-003 defines target-owned analytics result storage. Its schema-v3-compatible writer now preserves the current fingerprint, row uniqueness, rerun/reselection, supersession and active-selection behavior on tested synthetic cases. It receives canonical results and ordered selected-feature lineage rather than Legacy `MetricDraft`/`FeatureRecord`, and the synthetic Sleep sink owns one date's transaction. The future full runner must own the broader transaction. A freshness-only write can still report change while reselecting an old row whose stored freshness is unchanged. The incremental/full-replay selection difference remains an explicit compatibility policy input, not a Sleep formula. Production remains on Legacy.
 
+## Selected input and profile boundary — reconciled design, not implemented
+
+The synthetic target **caller** still supplies Legacy-shaped selected nights and a Legacy-loaded profile; the target runtime package imports neither Legacy function. The next target read boundary uses existing schema-v3 `active_features`/`features` to obtain only active `nightly` rows for the calculation date and previous 14 dates. It must preserve gaps and the stored feature fingerprint; it must not rebuild a night, choose a session, recompute a fingerprint or read raw Xiaomi data. The reader should participate in a caller-supplied session so a future full runner can read changes made in the same transaction. `StoredFeatureRef` plus one narrow selected-night observation value is sufficient; no wholesale `FeatureRecord` copy or numeric `feature_id` is needed in Sleep Core.
+
+| Legacy `FeatureRecord` field | Classification | Target handling |
+|---|---|---|
+| `kind`, `day` | Storage identity / domain date | Reader filters `kind="nightly"`; date keys the selected map and lineage. No arbitrary feature kind enters Sleep Core. |
+| `values.tst_min`, `deep_min`, `rem_min`, `waso_min`, `awakening_durations_min`, `bedtime_local_min`, `stage_coverage` | Domain data | Preserve raw `None`, zero, invalid numeric and list content until the existing adapter/calculator gates; only `stage_coverage == "COMPLETE"` becomes canonical `stage_complete`. Current night and bounded history use different subsets. |
+| `fingerprint` | Storage identity / provenance | Copy existing `features.input_fingerprint` unchanged into lineage; ordered references determine result fingerprints. |
+| `source_count`, `source_ids_hash`, `measurement_start`, `measurement_end`, `quality_flags` | Provenance | Preserve exact selected-row values in ordered `StoredFeatureRef`/`NightReference`; result storage uses them for coverage, signals, bounds and flags. |
+| `feature_id`, feature row versions, `quality_status`, feature freshness and other `values` keys | Legacy/storage-only for this Sleep slice | The reader needs `feature_id` internally to follow active selection, but Sleep calculation/result contracts do not consume it. Do not mistake discarded Sleep fields for permission to alter persisted feature rows or other metrics. |
+| Run ID, profile revision, source policy, stored freshness, replay cleanup | Orchestration context, not feature fields | Continue supplying them explicitly; do not infer them from the nightly row. |
+
+The profile boundary is a target-owned v1 loader plus dated target resolver. File reading/parsing and full-document revision calculation belong to platform/config; the resolved 14-date `EffectiveSleepTarget` ledger belongs to Sleep input assembly. Legacy `load_profile(None)` or a nonexistent path returns `{"schema_version": 1, "values": []}` and hashes that whole document. A present file requires schema v1/list entries, allowed fields, valid dates/intervals and nonoverlap per field; intervals include both endpoints. The loader only checks positive numeric `sleep_target_min`, while the Sleep resolver rejects configured values outside 300–720 or nonfinite/bool values and uses 480.0 when no effective target exists. Preserve this two-stage behavior and the current error path; do not replace invalid configuration with a fallback. The profile revision must remain the hash of the **whole** v1 document, including fields irrelevant to Sleep, because it participates in persisted identity. With no current selected night, Sleep emits nothing before resolving target dates, while runner-level profile loading/validation still occurs at run entry.
+
+The full runner's date/replay, lock, run-record and transaction lifecycle is separate from this input boundary. Existing `SleepRunContext` covers a single invocation's date, profile revision, run ID, source policy, stored freshness and cleanup decision. It is not a full-runner contract: it does not carry source generation/checkpoints, global lock, shared session or other feature outcomes. `run_sleep_day()` can coordinate a date with preloaded inputs, but `TargetSleepStore` currently opens and commits its own session. It must later accept a caller-owned session before it can join the production transaction. Incremental missing-night cleanup and full-replay retention remain locked behavior.
+
 ## Risks
 
 - **Low:** isolated formula evaluation on synthetic typed inputs.
@@ -211,6 +228,12 @@ Observed reality: target `TargetSleepStore` now publishes canonical Score, Need 
 Plan adjustment: Storage Phase C is complete for synthetic Sleep only. Reconcile the remaining input/feature and full-runner boundaries before any production switch. No formula, schema, freshness, profile or CLI contract changed.
 
 Reason: target result persistence is now independently usable without making the production runner depend on a partially migrated pipeline.
+
+### 2026-10-07 — Input/profile and runner design reconciliation
+
+Observed: the target Sleep package has no Legacy runtime imports, but synthetic callers still supply active `FeatureRecord` data and a full-document profile revision from Legacy. The seven Sleep observation keys plus existing `StoredFeatureRef` lineage suffice for a narrow target read model; feature row IDs and unrelated nightly values are not Sleep Core inputs. Legacy profile validation and target resolution have separate gates, and its revision hashes the entire v1 document. The current one-date sink transaction does not satisfy future full-runner atomicity.
+
+Decision: first migrate only selected active-night reading over unchanged schema v3, with differential tests. Keep profile file loading/resolution and runner session composition for later bounded tasks. The current formula, public metric contracts, result persistence, production path and Legacy snapshot are unchanged.
 
 ## Audit result
 

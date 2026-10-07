@@ -1,6 +1,8 @@
 # ADR-002: Target package identity and Sleep Core integration seam
 
-Status: **Accepted for target design** (2026-10-06). This ADR changes no runtime imports, runner, database or CLI. Phase 4C implementation and production activation require separate verification.
+Status: **Accepted for target design** (2026-10-06). At decision time this ADR changed no runtime imports, runner, database or CLI. Phase 4C implementation and production activation required separate verification.
+
+Implementation note (2026-10-07): the package move and synthetic seam described below have been completed. Storage Phases A–C replaced the synthetic Legacy result bridge with target-owned result persistence. The context, proposed seam and component-disposition table below record the **decision-time baseline**, not current runtime dependencies. Selected-night/profile input and full-runner boundaries remain; production remains Legacy. See `ARCHITECTURE.md` and the active Sleep plan for current ownership.
 
 ## Context and evidence
 

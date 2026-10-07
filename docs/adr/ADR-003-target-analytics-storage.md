@@ -1,6 +1,6 @@
 # ADR-003: Target-owned analytics result storage
 
-Status: **Accepted for target design** (2026-10-07). This is a documentation decision. No target storage implementation, schema change, production switch or migration of personal data exists.
+Status: **Accepted for target design** (2026-10-07). At decision time this was documentation only. Storage Phases A–C have since implemented the compatible target result writer and switched the **synthetic** Sleep sink. No schema change, production switch or migration of personal data exists. The context and proposed-contract sections below describe the decision-time baseline; see `ARCHITECTURE.md` and the active Sleep plan for current implementation.
 
 ## Context and evidence
 
