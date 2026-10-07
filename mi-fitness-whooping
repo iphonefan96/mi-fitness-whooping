@@ -2,6 +2,6 @@
 set -eu
 
 repo_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
-PYTHONPATH="$repo_dir/src:$repo_dir/Legacy${PYTHONPATH:+:$PYTHONPATH}"
+PYTHONPATH="$repo_dir/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 exec python3 -m mi_fitness_whooping "$@"

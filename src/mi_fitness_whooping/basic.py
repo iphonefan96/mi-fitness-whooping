@@ -1,7 +1,7 @@
-"""Small compatibility path from the existing analytics run to dated answers.
+"""Small local path from target baseline analytics to dated answers.
 
-The unchanged Legacy runner remains the calculation owner. This module only
-reads its selected schema-v3 outputs; it does not calculate or persist metrics.
+The target runner owns calculation and persistence. This module reads its
+selected schema-v3 outputs; presentation does not calculate metrics.
 """
 
 from __future__ import annotations
@@ -134,13 +134,13 @@ def history_report(analytics_path: str | Path, start: date, end: date) -> dict:
 
 def run_and_read(source_path: str | Path, analytics_path: str | Path,
                  day: date | None = None, profile_path: str | Path | None = None) -> dict:
-    """Reuse Legacy's complete run at the outer edge, then read its selected result."""
+    """Run target baseline analytics, then read its selected result."""
     source, destination = Path(source_path), Path(analytics_path)
     if source.resolve() == destination.resolve() or (
         source.is_file() and destination.is_file() and source.samefile(destination)
     ):
         raise ValueError("source and analytics database must be separate files")
-    from analytics.runners.runner import run  # Legacy compatibility edge only.
+    from mi_fitness_whooping.baseline.runner import run
 
     outcome = run(source, destination, profile_path)
     if outcome["status"] not in {"SUCCESS", "NO NEW ANALYTICS INPUT"}:

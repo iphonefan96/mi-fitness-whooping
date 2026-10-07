@@ -1,6 +1,6 @@
 # Mi Fitness Whooping: existing-data baseline
 
-This repository currently has a practical daily path for analytics already implemented in Legacy. It reads an existing Mi Fitness `health.sqlite` through the unchanged read-only Xiaomi adapter, runs the existing calculations into a **separate** schema-v3 analytics SQLite file, and returns selected results for a date. The target Sleep Core and selected-night reader remain a separately tested migration path; this command does not activate them in production.
+This repository has a local daily path owned by `mi_fitness_whooping`. It reads the existing Mi Fitness `health.sqlite`, calculates the already supported indicators, writes a **separate** schema-v3 analytics SQLite file, and returns selected results for a date. The calculation behavior was carried over from Legacy and checked against it; Sleep Score, Need and Debt use the target Sleep Core and active-night reader. The installed ETL and LaunchAgent are unchanged.
 
 ## What is available
 
@@ -28,8 +28,9 @@ Run the existing calculations and show a date:
   --day 2026-09-25
 ```
 
-Omit `--day` to show the latest selected night, or the latest selected date if there is no night. The command writes only through Legacy's existing runner to the separate analytics destination. It does not change `health.sqlite`.
-It rejects the same file as `--source` and `--db`.
+Omit `--day` to show the latest selected night, or the latest selected date if there is no night. The target runner writes only to the separate analytics destination. It does not change `health.sqlite`.
+It rejects the same file as `--source` and `--db`. The target runner owns one
+analytics lock and transaction for features, metrics, selections and state.
 
 Read a date or inclusive history without running calculations:
 
@@ -40,8 +41,9 @@ Read a date or inclusive history without running calculations:
 
 These commands require an existing analytics schema v3 and open it read only. They return JSON with `sleep`, `recovery`, `vitals`, `other_metrics`, and selected daily-feature `activity`/`stress`. Calculation `status` and `stored_freshness` are separate; freshness is the stored label from the calculation run, not a new query-time assessment. Missing calendar dates appear as `MISSING` in history. All paths must point outside Git when they contain personal data.
 
-The launcher uses the unchanged Legacy analytics runner for `run`. It does not
-switch the installed ETL, LaunchAgent, or target Sleep Core into production.
+The launcher uses only the target package at runtime. Legacy is retained as a
+test reference; it is not imported or launched by `run`. This local command is
+not a change to the installed ETL or LaunchAgent.
 
 Example selected fields from a **synthetic** run (the command also returns provenance and metadata):
 

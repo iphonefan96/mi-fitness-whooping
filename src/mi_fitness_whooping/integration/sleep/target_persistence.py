@@ -1,8 +1,7 @@
-"""Publish one synthetic Sleep date through target-owned result storage.
+"""Publish one Sleep date through target-owned result storage.
 
-The caller supplies already selected features, profile and replay policy.
-This sink opens only a Sleep-date session; a future full runner must own the
-larger transaction and lock before any production activation.
+The caller may supply an outer-owned session for a whole analytics run.
+Without one, the existing single-date synthetic path owns its session.
 """
 
 from __future__ import annotations
@@ -15,7 +14,8 @@ from mi_fitness_whooping.integration.sleep.input_adapter import NightlyFeature
 from mi_fitness_whooping.integration.sleep.run_context import SleepRunContext
 from mi_fitness_whooping.integration.sleep.storage_contract_adapter import to_persistable_sleep_result
 from mi_fitness_whooping.storage.contracts import (
-    AnalyticsSessionFactory, MetricResultRepository, ResultWriteContext,
+    AnalyticsSession, AnalyticsSessionFactory, MetricResultRepository, ResultWriteContext,
+    WriteOutcome,
 )
 
 
@@ -28,6 +28,7 @@ class TargetSleepStore:
         implementation_version: str = "0.5.0",
         input_contract_version: str = "foundation-output-1",
         quality_gate_version: str = "foundation-gates-1",
+        session: AnalyticsSession | None = None,
     ) -> None:
         self.sessions = sessions
         self.repository = repository
@@ -35,6 +36,8 @@ class TargetSleepStore:
         self.implementation_version = implementation_version
         self.input_contract_version = input_contract_version
         self.quality_gate_version = quality_gate_version
+        self.session = session
+        self.outcomes: tuple[WriteOutcome, ...] = ()
 
     def publish(
         self,
@@ -69,16 +72,23 @@ class TargetSleepStore:
             quality_gate_version=self.quality_gate_version,
         )
         produced = {result.metric_name for result in projected}
-        session = self.sessions.begin()
+        owned = self.session is None
+        session = self.sessions.begin() if owned else self.session
+        assert session is not None
+        self.outcomes = ()
         try:
+            outcomes = []
             for result in projected:
-                self.repository.persist(session, result, write_context)
+                outcomes.append(self.repository.persist(session, result, write_context))
             if context.cleanup_obsolete:
                 obsolete = tuple(metric.value for metric in SleepMetric
                                  if metric.value not in produced)
                 if obsolete:
                     self.repository.clear_active(session, context.day, obsolete)
-            session.commit()
+            if owned:
+                session.commit()
+            self.outcomes = tuple(outcomes)
         except BaseException:
-            session.rollback()
+            if owned:
+                session.rollback()
             raise

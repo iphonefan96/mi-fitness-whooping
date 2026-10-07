@@ -1,36 +1,22 @@
 # Active plan: usable analytics baseline
 
-Updated: 2026-10-07. This plan supersedes the earlier rolling-wave Sleep-only migration schedule. The previous phases remain visible in Git history and the Sleep feature specification; they are not a queue of mandatory next tasks. Current branch: `feature/sleep-core-v1`; baseline implementation commit: `787c8eee22cdf415d6be078e104c961160df4906`.
+Updated: 2026-10-07 on `feature/sleep-core-v1`. This plan records the local target-runtime integration after `a17250615ac1c09997f978765bffd819656da1c1`; it does not prescribe a new metric or a production scheduler switch. The detailed behavior contract for the three migrated Sleep metrics remains `docs/features/sleep-core-v1.md`.
 
-## Goal
+## Goal and current result
 
-Make the existing Mi Fitness data useful through a small, local, WHOOP-like analytics path. Reuse and cleanly adapt **existing Legacy calculations** for sleep, Recovery and the supported heart-rate/RHR, SpO2, respiratory, stress and activity outputs. First make a date and history result usable; additional sleep features come later. SpO2 is oxygen saturation, not laboratory blood analysis. Xiaomi HRV is unavailable, so do not invent it.
+The local `./mi-fitness-whooping run|day|history` path exposes existing Mi Fitness sleep, Recovery, available vitals, stress and activity behavior without a Legacy runtime import. The installed ETL still creates `health.sqlite`; its wrapper and LaunchAgent have not changed. The target runner reads that source, builds the same nightly/daily features, loads profile v1, computes existing metrics, writes schema-v3 results and serves a dated JSON response. Sleep Score, Need and Debt use target Sleep Core and active-night reader; the other baseline calculations are behavior-preserving ports. No HRV or new formula is invented.
 
-Do not start a new algorithm, UI, device adapter, schema or general framework for this baseline. Preserve current formulas and observable statuses/metadata unless a separate behavior change is explicitly approved. List optional ideas and technical debt in `BACKLOG.md`.
+The runner owns one analytics lock and transaction. `TargetSleepStore` accepts that existing session, so Sleep results commit or roll back with features, other results and state. Its standalone session remains for isolated tests. Pure calculations do not read SQLite or the clock. `day`/`history` remain read-only presentations of active selections and stored freshness.
 
-## What exists now
+## Verification completed in this task
 
-- Production ETL, analytics runner and JSON CLI are still in immutable `Legacy/`; they operate on external `health.sqlite`, `analytics.sqlite` and profile v1. The installed pipeline has not switched to the target package.
-- Legacy already builds nightly/daily features and calculates Sleep Score, fixed-target Sleep Need, 14-night Sleep Debt, reduced-mode Recovery, foundation/vitals/activity signals and monitoring outputs. Some fields are source-only or withheld: verify their actual availability before promising them in a result.
-- The target package has pure Sleep Core, a synthetic Sleep orchestrator, target schema-v3 result storage and `SqliteActiveNightReader`. The reader follows `active_features.feature_id` for day−14…day; synthetic full-row comparisons of all three Sleep results with Legacy passed. It does not build features or run production.
-- The last reported audit at `2999c21` returned **GO** for the implemented reader. Its one non-blocking test gap (reselecting an old feature revision through the entire reader→Sleep→stored-results path) belongs in `BACKLOG.md`. There is no need to repeat the completed reader task.
-- Target profile loading, feature building/writing, full runner transaction/lock/replay/checkpoints and other analytics are not migrated. The additive local `run|day|history` CLI uses the Legacy runner for calculation and schema-v3 selected-result reading for presentation. `TargetSleepStore` still commits one date itself. Treat this as a production-integration constraint, not as a mandatory list of separate phases.
+- Synthetic Legacy differential scenarios cover normal days, a missing calendar date, incomplete stages, an effective-dated target, unchanged repeat, historical correction, removed current night and a forced mid-run failure. Feature rows, result rows, active selections and full dated/history responses are compared, excluding only operational timestamps and run UUIDs.
+- A target-only subprocess runs with `src/` as the sole project import root; no `analytics` Legacy package is loaded.
+- Independent Legacy and target runs on two disposable copies of an external analytics database produced matching run summaries, 4,000 feature rows, 98,473 result rows, both active-selection tables, a dated answer and seven-day history. A repeat returned `NO NEW ANALYTICS INPUT`. No personal values were emitted.
+- The switched local CLI was rehearsed on fresh disposable copies: `run`, repeat, `day` and `history` passed without Legacy on its import path. Both copied databases passed integrity checks; the source-copy hash was unchanged and read-only responses did not change the analytics-copy hash.
 
-## Current checkpoint and next use
+## Next necessary boundary
 
-The baseline inventory and vertical path are implemented. A local launcher now runs the CLI without manual import-path setup. Synthetic tests cover the launcher, source-to-result path, selected revisions, missing days and unchanged reruns. A disposable-copy rehearsal of the external databases confirmed a successful run, no-op repeat, selected-result parity, inclusive history, a real missing date, source-copy integrity and unchanged live main-database file metadata. SQLite read-only backup updated live `-shm` coordination-file metadata. The source copy required DELETE journal mode after backup to keep the Legacy source-file fingerprint stable; this was a copy-only preparation step.
+Keep the local target command available. Before changing the installed analytics job, verify its intended profile and database paths, compare its complete output/operational status contract, and review deployment/rollback with the installed ETL and LaunchAgent. This is a deployment decision, not a request to add metrics, rebuild ingestion or rewrite the runner again. Existing old-correction limits and optional product work stay in `BACKLOG.md`.
 
-For ordinary local use, supply the existing external source and a separate schema-v3 analytics destination to `./mi-fitness-whooping run`, or use its read-only `day`/`history` commands. Keep the installed ETL and LaunchAgent untouched. The target Sleep Core remains a separate synthetic path; no target production runner is being activated. Before any scheduled or production switch, confirm the intended profile/path and independently review a copy-based full response for the user's own environment.
-
-## Baseline acceptance
-
-- A user can request a date and recent history and see the existing supported sleep, Recovery and available vitals/activity outputs with their units, status/quality and freshness. The report distinguishes calculated metrics, vendor values and missing inputs.
-- Existing formula behavior and locked persistent/CLI contracts remain compatible, or an explicitly approved deviation is documented. An unchanged rerun does not create duplicate active results.
-- Synthetic integration tests pass for the changed path. A copy-based rehearsal has passed; independent end-to-end review still precedes any production activation. Source exports and production databases are not modified by tests.
-- The result and remaining limitations are understandable without reading the migration history.
-
-## Deferred, not blocking this task
-
-Target profile loader and full-document revision parity; general source reconciliation for old corrections, `cn`/`ru` collisions and deletions; broad runner/CLI rewrite; new sleep formulas, HRV, new devices, UI and historical revision optimization. Some may become necessary for a safe production switch; investigate that from the implemented baseline rather than pre-scheduling separate migration phases. See `BACKLOG.md`.
-
-`docs/features/sleep-core-v1.md` remains the detailed behavior contract for the existing three Sleep metrics. ADR-001 through ADR-003 document historical decisions and do not by themselves mandate the old task order.
+The source copy used for rehearsal was set to DELETE journal mode after SQLite backup so sidecar creation did not trip the source fingerprint guard. Read-only backup can update live `-shm` metadata; no live main database or personal values were changed or added to Git.
