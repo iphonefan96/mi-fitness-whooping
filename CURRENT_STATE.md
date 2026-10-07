@@ -31,7 +31,7 @@ On disposable SQLite backups of the external databases, independent Legacy and t
 
 ## Remaining risks and work
 
-- The installed ETL/LaunchAgent still uses its existing configuration. Scheduling target analytics is a new job, not a switch: it needs a reviewed decision on the trigger (after ETL in the same wrapper or a separate LaunchAgent), explicit `--source`/`--db`/`--profile`, a pinned Python ≥ 3.11, log destination, and whether Legacy `status` stays the status/headline command.
+- Decision 2026-10-08: the baseline runs analytics manually with `./mi-fitness-whooping run`. Scheduling is deferred to `BACKLOG.md`; the installed ETL/LaunchAgent is unchanged and runs ETL only.
 - Legacy-preserved cleanup gap: a date that loses both nightly and daily features, or loses a night during an algorithm-version rerun, keeps its previous active metric selections.
 - Legacy-compatible incremental discovery uses source-file fingerprint and a 48-hour overlap; arbitrary old source corrections and deletions may need separate reconciliation. The candidate reconciliation ETL is not installed.
 - Stored freshness is assigned at calculation time. Historical rows can retain an old label on an unchanged rerun; the local `day`/`history` commands report stored freshness and do not replace Legacy's query-time headline policy.

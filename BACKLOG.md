@@ -4,17 +4,15 @@ Optional work and known risks outside the current usable-baseline task. A checke
 
 ## Data correctness and production integration
 
-- [ ] Before scheduled use, confirm the intended external profile/database paths and review the installed job's full output, operational status and rollback. Local target `run` and copy rehearsals do not switch the LaunchAgent.
+- [ ] Scheduled analytics (deferred; the baseline is run manually). No analytics job is installed; the LaunchAgent runs ETL only. A schedule needs a reviewed decision on: trigger (after ETL in the same wrapper, or a separate LaunchAgent); explicit `--source`/`--db`/`--profile`; a pinned Python ≥ 3.11 (launchd's `/usr/bin/python3` is 3.9 and fails); log destination; whether Legacy `status`/`validate` stay the status surface or target needs an equivalent; rollback. Re-inspect the host for other schedulers before activation.
 - [ ] If SQLite backup is used to make a standalone source copy for rehearsal, handle WAL journal mode/sidecars so the Legacy source-file fingerprint stays stable. A copy without sidecars initially returned `SOURCE_CHANGED_DURING_ANALYTICS_RUN`; changing only the copy to DELETE journal mode allowed the rehearsal to pass.
 - [ ] Reconcile old source corrections beyond the installed ETL's 48-hour overlap, `cn`/`ru` identity collisions and source deletions/tombstones. The separate `mi_fitness_reconcile.py` is a candidate, not the installed production ETL.
 - [ ] Validate full import/rebuild and replay on disposable copies before any production promotion; compare counts, conflicts and active results. The baseline `run`/rerun/day/history copy rehearsal is complete, but it is not a full rebuild or replay audit. Do not run a production backfill as incidental cleanup.
-- [ ] Characterize installed analytics wrapper/LaunchAgent compatibility before a deployment switch. The local target runner now owns profile v1 loading, feature/result writes, checkpoints, lock and transaction; the installed job remains unchanged.
 - [ ] Check stored-versus-query-time freshness behavior before changing it; `FRESH` stored rows can have a `STALE` headline at query time.
 
 ## Verification gaps
 
 - [ ] Add a synthetic full path for reselecting an old *feature* revision through reader → Sleep → stored result when the changed integration path warrants it. Reader-only reselection, corrected-night full path and writer reselection are already tested; the audit at `2999c21` called this gap non-blocking.
-- [ ] Characterize the installed Legacy `init|validate|run|status` JSON/status surface if the deployment switch intends to replace it. The local `run|day|history` response has been checked against Legacy-selected stored results but is a separate CLI.
 - [ ] Assess dependency-graph over-invalidation and stored revision growth against actual benefit. Do not optimize it as part of the baseline unless it blocks use.
 
 ## Later product work
