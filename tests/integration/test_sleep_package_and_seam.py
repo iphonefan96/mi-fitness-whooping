@@ -18,9 +18,12 @@ from analytics.profile.config import load_profile
 from analytics.storage.db import (
     active_feature_records, connect, migrate, put_feature, put_result,
 )
-from mi_fitness_whooping.analytics.sleep.core import calculate_sleep_core
-from mi_fitness_whooping.integration.sleep.input_adapter import adapt_sleep_input
-from reference_legacy_output import adapt_sleep_result
+from mi_fitness_whooping.integration.sleep.run_context import SleepRunContext
+from mi_fitness_whooping.integration.sleep.target_persistence import TargetSleepStore
+from mi_fitness_whooping.orchestration.sleep import run_sleep_day
+from mi_fitness_whooping.storage.sqlite import (
+    SqliteActiveNightReader, SqliteAnalyticsSessionFactory, SqliteMetricResultRepository,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +67,17 @@ def current_snapshot(db) -> tuple[list[tuple], list[tuple]]:
     return rows, active
 
 
+def target_selected_nights(db):
+    session = SqliteAnalyticsSessionFactory(db).begin()
+    try:
+        selected = SqliteActiveNightReader().selected_nights(session, DAY)
+        session.commit()
+        return selected
+    except BaseException:
+        session.rollback()
+        raise
+
+
 class PackageCoexistenceTests(unittest.TestCase):
     def test_both_packages_resolve_normally_in_either_root_order(self):
         code = "\n".join((
@@ -105,7 +119,8 @@ class PersistedSleepSeamTests(unittest.TestCase):
                             self.assertTrue(put_feature(db, feature(DAY - timedelta(days=offset)),
                                                         profile_revision=revision,
                                                         source_policy_version=POLICY))
-                    nights, _ = active_feature_records(db)
+                    nights = (active_feature_records(db)[0] if name == "legacy"
+                              else target_selected_nights(db))
                     self.assertEqual(len(nights), 15)
                     seen = []
                     for step, correction in (("first", False), ("unchanged", False),
@@ -116,50 +131,56 @@ class PersistedSleepSeamTests(unittest.TestCase):
                                                                          corrected=True),
                                                             profile_revision=revision,
                                                             source_policy_version=POLICY))
-                            nights, _ = active_feature_records(db)
-                        legacy = calculate_sleep_day(DAY, nights, profile)
-                        canonical = adapt_sleep_input(DAY, nights, profile, revision)
-                        self.assertIs(type(canonical.targets[-1].minutes), float)
-                        self.assertEqual(canonical.targets[-1].minutes, expected_target)
-                        target = [adapt_sleep_result(result, nights)
-                                  for result in calculate_sleep_core(canonical)]
-                        self.assertEqual(target, legacy)
-                        self.assertEqual([draft.name for draft in target],
-                                         ["sleep.score", "sleep.need_min", "sleep.debt_min"])
-                        self.assertIs(type(target[1].value), float)
-                        self.assertEqual(target[1].value, expected_target)
-                        for prior, adapted in zip(legacy, target):
-                            self.assertEqual([row.fingerprint for row in adapted.inputs],
-                                             [row.fingerprint for row in prior.inputs])
-                            for row in adapted.inputs:
-                                self.assertIs(row, nights[row.day])
-                        drafts = legacy if name == "legacy" else target
-                        with db:
-                            changed = [put_result(db, draft, run_id=f"synthetic-{step}",
-                                                  profile_revision=revision,
-                                                  freshness_status=FRESHNESS,
-                                                  source_policy_version=POLICY)
-                                       for draft in drafts]
-                        self.assertEqual(changed, {"first": [True] * 3,
-                                                   "unchanged": [False] * 3,
-                                                   "corrected": [True, False, True]}[step])
-                        seen.append((step, changed, current_snapshot(db)))
+                            nights = (active_feature_records(db)[0] if name == "legacy"
+                                      else target_selected_nights(db))
+                        if name == "legacy":
+                            drafts = calculate_sleep_day(DAY, nights, profile)
+                            with db:
+                                changed = [put_result(db, draft, run_id=f"synthetic-{step}",
+                                                      profile_revision=revision,
+                                                      freshness_status=FRESHNESS,
+                                                      source_policy_version=POLICY)
+                                           for draft in drafts]
+                            self.assertEqual(changed, {
+                                "first": [True] * 3,
+                                "unchanged": [False] * 3,
+                                "corrected": [True, False, True],
+                            }[step])
+                        else:
+                            run_context = SleepRunContext(DAY, revision, f"synthetic-{step}",
+                                                          POLICY, FRESHNESS, True)
+                            prior_count = db.execute(
+                                "SELECT COUNT(*) FROM derived_metric_results").fetchone()[0]
+                            results = run_sleep_day(
+                                nights, profile, run_context,
+                                TargetSleepStore(SqliteAnalyticsSessionFactory(db),
+                                                 SqliteMetricResultRepository()))
+                            self.assertEqual([result.metric.value for result in results],
+                                             ["sleep.score", "sleep.need_min", "sleep.debt_min"])
+                            self.assertIs(type(results[1].value), float)
+                            self.assertEqual(results[1].value, expected_target)
+                            row_count = db.execute(
+                                "SELECT COUNT(*) FROM derived_metric_results").fetchone()[0]
+                            self.assertEqual(row_count - prior_count, {
+                                "first": 3, "unchanged": 0, "corrected": 2,
+                            }[step])
+                        seen.append((step, current_snapshot(db)))
                         if step == "unchanged":
-                            self.assertEqual(seen[-1][2], seen[0][2])
+                            self.assertEqual(seen[-1][1], seen[0][1])
                     snapshots[name] = seen
                 finally:
                     db.close()
                 # Read back from a new connection: the comparison covers persisted selection.
                 reopened = connect(db_path)
                 try:
-                    self.assertEqual(current_snapshot(reopened), seen[-1][2])
+                    self.assertEqual(current_snapshot(reopened), seen[-1][1])
                 finally:
                     reopened.close()
             self.assertEqual(snapshots["target"], snapshots["legacy"])
-            first_rows, first_active = snapshots["target"][0][2]
+            first_rows, first_active = snapshots["target"][0][1]
             self.assertEqual(len(first_rows), 3)
             self.assertEqual(len(first_active), 3)
-            final_rows, final_active = snapshots["target"][-1][2]
+            final_rows, final_active = snapshots["target"][-1][1]
             self.assertEqual(len(final_rows), 5)
             self.assertNotEqual(first_active, final_active)
             fingerprint_index = STORED_FIELDS.index("input_fingerprint")

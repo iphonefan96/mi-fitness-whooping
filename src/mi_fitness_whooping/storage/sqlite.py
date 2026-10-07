@@ -1,4 +1,4 @@
-"""Schema-v3-compatible metric writer with caller-owned transactions.
+"""Schema-v3-compatible result writer and selected-night reader.
 
 The target package does not create/migrate a schema or read source data here.
 `calculated_at` is an operational timestamp; freshness and identity are supplied
@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Mapping
 
 from mi_fitness_whooping.storage.contracts import (
     ActiveResult, AnalyticsSession, PersistableMetricResult, ResultIdentity, ResultWriteContext,
-    WriteOutcome,
+    SelectedSleepFeature, StoredFeatureRef, WriteOutcome,
 )
 from mi_fitness_whooping.storage.fingerprint import canonical_hash, result_fingerprint
 
@@ -94,6 +94,47 @@ def _connection(session: AnalyticsSession) -> sqlite3.Connection:
     if not isinstance(session, SqliteAnalyticsSession):
         raise TypeError("SQLite repository requires a SQLite analytics session")
     return session.require_active()
+
+
+class SqliteActiveNightReader:
+    """Project active schema-v3 nightly rows without selecting feature revisions."""
+
+    def selected_nights(
+        self, session: AnalyticsSession, day: date,
+    ) -> dict[date, SelectedSleepFeature]:
+        db = _connection(session)
+        lower = (day - timedelta(days=14)).isoformat()
+        cursor = db.execute("""SELECT a.metric_date AS selected_date,
+            f.kind, f.metric_date, f.values_json, f.input_fingerprint,
+            f.source_count, f.source_ids_hash, f.measurement_start,
+            f.measurement_end, f.quality_flags_json
+            FROM active_features a JOIN features f ON f.feature_id=a.feature_id
+            WHERE a.kind='nightly' AND a.metric_date BETWEEN ? AND ?
+            ORDER BY a.metric_date""", (lower, day.isoformat()))
+        columns = tuple(column[0] for column in cursor.description)
+        selected = {}
+        for raw in cursor:
+            row = dict(zip(columns, raw, strict=True))
+            if row["kind"] != "nightly" or row["metric_date"] != row["selected_date"]:
+                raise ValueError("active nightly selection does not match its feature row")
+            values = json.loads(row["values_json"])
+            flags = tuple(json.loads(row["quality_flags_json"]))
+            feature_day = date.fromisoformat(row["metric_date"])
+            reference = StoredFeatureRef(
+                kind="nightly", day=feature_day, fingerprint=row["input_fingerprint"],
+                source_count=row["source_count"], source_ids_hash=row["source_ids_hash"],
+                measurement_start=row["measurement_start"],
+                measurement_end=row["measurement_end"], quality_flags=flags,
+            )
+            selected[feature_day] = SelectedSleepFeature(
+                reference=reference, tst_min=values.get("tst_min"),
+                deep_min=values.get("deep_min"), rem_min=values.get("rem_min"),
+                waso_min=values.get("waso_min"),
+                awakening_durations_min=values.get("awakening_durations_min"),
+                bedtime_local_min=values.get("bedtime_local_min"),
+                stage_coverage=values.get("stage_coverage"),
+            )
+        return selected
 
 
 class SqliteMetricResultRepository:

@@ -19,7 +19,7 @@ from mi_fitness_whooping.domain.sleep.contracts import (
 
 
 class NightlyFeature(Protocol):
-    """Fields supplied by the existing active nightly feature map."""
+    """Fields supplied by a selected nightly read value or Legacy test record."""
 
     day: date
     values: Mapping[str, object]
@@ -83,8 +83,8 @@ def adapt_sleep_input(
     """Convert already selected nightly features; never read source or storage.
 
     The no-current-night return precedes any profile or history inspection, as
-    in the Legacy sleep calculation. The caller retains original feature
-    objects for the separate Phase 4B output compatibility boundary.
+    in the Legacy sleep calculation. The caller retains the selected feature
+    map for result-lineage validation by the target sink.
     """
     if day not in nights:
         return SleepCoreInput(day, (), (), profile_revision)

@@ -1,7 +1,8 @@
 """Storage boundary values and protocols, without fingerprint or database code.
 
-The future writer owns identity calculation, row revisions and active selection.
-An outer runner owns session lifetime and replay/clear policy.
+The target writer owns result identity, revisions and active selection. The
+selected-night read contract carries only Sleep-required observations. A future
+outer runner owns shared session lifetime and replay/clear policy.
 """
 
 from __future__ import annotations
@@ -48,6 +49,67 @@ class StoredFeatureRef:
             raise ValueError("source_count cannot be negative")
         if not isinstance(self.quality_flags, tuple):
             raise TypeError("quality_flags must be a tuple")
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedSleepFeature:
+    """Narrow active-night read value; raw observations retain calculation gates."""
+
+    reference: StoredFeatureRef
+    tst_min: object
+    deep_min: object
+    rem_min: object
+    waso_min: object
+    awakening_durations_min: object
+    bedtime_local_min: object
+    stage_coverage: object
+
+    def __post_init__(self) -> None:
+        if self.reference.kind != "nightly":
+            raise ValueError("selected Sleep input must be nightly")
+
+    @property
+    def kind(self) -> str:
+        return self.reference.kind
+
+    @property
+    def day(self) -> date:
+        return self.reference.day
+
+    @property
+    def fingerprint(self) -> str:
+        return self.reference.fingerprint
+
+    @property
+    def source_count(self) -> int:
+        return self.reference.source_count
+
+    @property
+    def source_ids_hash(self) -> str:
+        return self.reference.source_ids_hash
+
+    @property
+    def measurement_start(self) -> str | None:
+        return self.reference.measurement_start
+
+    @property
+    def measurement_end(self) -> str | None:
+        return self.reference.measurement_end
+
+    @property
+    def quality_flags(self) -> tuple[str, ...]:
+        return self.reference.quality_flags
+
+    @property
+    def values(self) -> Mapping[str, object]:
+        """Compatibility view for the existing input adapter; only Sleep keys exist."""
+        return MappingProxyType({
+            "tst_min": self.tst_min, "deep_min": self.deep_min,
+            "rem_min": self.rem_min, "waso_min": self.waso_min,
+            "awakening_durations_min": self.awakening_durations_min,
+            "bedtime_local_min": self.bedtime_local_min,
+            "stage_coverage": self.stage_coverage,
+        })
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +214,14 @@ class AnalyticsSessionFactory(Protocol):
     """Begin an explicit outer-owned transaction; never nest implicitly."""
 
     def begin(self) -> AnalyticsSession: ...
+
+
+class ActiveNightReader(Protocol):
+    """Read selected nightly features inside an existing analytics session."""
+
+    def selected_nights(
+        self, session: AnalyticsSession, day: date,
+    ) -> Mapping[date, SelectedSleepFeature]: ...
 
 
 class MetricResultRepository(Protocol):
