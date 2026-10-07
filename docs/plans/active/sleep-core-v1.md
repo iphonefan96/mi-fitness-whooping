@@ -1,10 +1,10 @@
 # Execution Plan: Sleep Core v1
 
-Status: **Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; target storage boundary designed in ADR-003; Storage Phase A and Phase 4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
+Status: **Phases 1–3, Phase 4A/B adapters, Phase 4C1/4C2 synthetic integration and Storage Phase A contracts complete; Storage Phase B and Phase 4C3 pending.** Feature specification: [`../../features/sleep-core-v1.md`](../../features/sleep-core-v1.md). The repository, feature specification and locked contracts outrank this provisional plan.
 
 ## Current phase
 
-Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A/B adapters handle compatibility; Phase 4C1 proves normal co-imports and temporary-DB persistence. Phase 4C2 coordinates one already-loaded Sleep date with explicit run context and a temporary Legacy storage bridge. ADR-003 has reconciled the storage contract and chosen schema-compatible target ownership. The next implementation task is Storage Phase A contracts/tests only. Production still uses Legacy; 4C3 remains separately gated.
+Phase 3's pure calculator consumes the Phase 2 contracts and has differential tests against the immutable Legacy oracle. Phase 4A/B adapters handle compatibility; Phase 4C1 proves normal co-imports and temporary-DB persistence. Phase 4C2 coordinates one already-loaded Sleep date with explicit run context and a temporary Legacy storage bridge. ADR-003 chose schema-compatible target ownership. Storage Phase A now has target contracts and a write-free Sleep projection; the next implementation task is a separately reconciled compatible writer (Phase B). Production still uses Legacy; 4C3 remains separately gated.
 
 ## Rolling-wave phases
 
@@ -15,13 +15,13 @@ Phase 3's pure calculator consumes the Phase 2 contracts and has differential te
 5. **Regression comparison against Legacy.** Compare characterized cases and relevant synthetic end-to-end runs, including reruns and historical correction.
 6. **Audit.** Independently check the feature specification, dependency direction, compatibility, tests and change scope.
 
-Completed Phases 1–3 and Phase 4A/B/C1/C2 are detailed. Phase 4C3 and Phases 5–6 remain high-level. This plan does not schedule the whole project.
+Completed Phases 1–3, Phase 4A/B/C1/C2 and Storage Phase A are described below. Phase 4C3, Storage Phases B–D and Phases 5–6 remain high-level until reconciliation. This plan does not schedule the whole project.
 
 ## Target analytics storage migration — design checkpoint
 
-ADR-003 documents current Sleep-visible result/feature identity, exact fingerprint inputs and canonicalization, row uniqueness, revision/reselection, active selection, freshness, provenance serialization and runner atomicity. **Current:** `LegacySleepStore` still delegates result writes to `analytics.storage.db.put_result()` and owns a synthetic one-date transaction. **Target:** `mi_fitness_whooping.storage` owns compatible persistence against the existing analytics SQLite schema v3, while the future outer runner owns a shared transaction, run lock and replay decision. There is no target storage code yet. Legacy deletion remains an explicit project milestone.
+ADR-003 documents current Sleep-visible result/feature identity, exact fingerprint inputs and canonicalization, row uniqueness, revision/reselection, active selection, freshness, provenance serialization and runner atomicity. **Current:** `LegacySleepStore` still delegates result writes to `analytics.storage.db.put_result()` and owns a synthetic one-date transaction. Phase A defines target storage contracts in `src/mi_fitness_whooping/storage/contracts.py` and a non-writing Sleep projection. **Target:** a future `mi_fitness_whooping.storage` writer owns compatible persistence against existing analytics SQLite schema v3, while a future outer runner owns the shared transaction, run lock and replay decision. There is no target writer or fingerprint code yet. Legacy deletion remains an explicit project milestone.
 
-1. **Storage Phase A — contracts and tests, next:** define only the minimum ordered selected-feature reference/result write identity, explicit write context, repository operations and caller-owned session boundary justified by ADR-003. Add synthetic contract cases for fingerprint input ordering and float canonicalization, exact schema row identity, first/unchanged/corrected/reselected writes, profile revision, source-policy-only early return, freshness-only reselection, active clearing under both replay policies and across source scopes, and rollback. The tests should compare observable behavior with immutable Legacy without personal data. Do not create a schema, SQL writer or switch the Sleep sink in Phase A.
+1. **Storage Phase A — contracts and tests, complete:** immutable `StoredFeatureRef`, `PersistableMetricResult`, explicit `ResultWriteContext`, post-persistence `ResultIdentity`/`ActiveResult`/`WriteOutcome`, and narrow repository/session protocols. `to_persistable_sleep_result()` maps canonical Sleep results to these fields without importing Legacy or writing. Six synthetic tests cover field equivalence to Legacy drafts, ordered lineage, metadata immutability, missing versus zero, context/result separation, protocol shape and forbidden imports. Exact fingerprint bytes, row identity and rollback still require Phase B differential tests; no algorithm or SQLite writer was implemented.
 2. **Storage Phase B — compatible target writer:** implement target-owned fingerprinting, serialization, revisions and active selection in the existing schema after Phase A reconciliation. Compare all stored Sleep columns and selection states against Legacy in temporary databases; explicitly verify no Legacy runtime import and transaction composition. Preserve schema/user history; no production write until separate cutover approval.
 3. **Storage Phase C — synthetic Sleep switch:** make the Sleep-only synthetic path publish through target storage/session. Run differential and failure tests; keep Legacy bridge available for comparison until equivalence is audited. No production runner or CLI change.
 4. **Storage Phase D — Sleep Legacy type exit:** replace the Sleep input/output compatibility path's `FeatureRecord`/`MetricDraft` dependence with target selected-feature and result contracts, including target read-side feature ownership as needed. Check lineage, fingerprints and all persistence outputs again. This is not a claim that non-Sleep Legacy dependencies are gone.
@@ -158,7 +158,7 @@ No freshness field is needed by either adapter. The runner must keep supplying s
 - [x] Phase 4C1 package separation and synthetic seam proof per ADR-002; then reconcile 4C2 wrapper scope.
 - [x] Phase 4C2 synthetic Sleep-only orchestration and transaction/cleanup characterization.
 - [x] Reconcile target analytics storage ownership and compatibility in ADR-003 (design only).
-- [ ] Storage Phase A minimum contracts and synthetic contract tests.
+- [x] Storage Phase A minimum contracts and synthetic contract tests.
 - [ ] Storage Phases B–D, each separately reconciled before implementation.
 - [ ] Separately gated 4C3 production-switch design and implementation.
 - [ ] Phases 5–6 as high-level work above.
@@ -271,3 +271,11 @@ Observed: Legacy `put_result()` derives a digest from metric/date, ordered featu
 Plan changes: ADR-003 chooses an existing-schema-compatible first target writer, target ownership of fingerprint/revision/selection logic, and an outer-runner-owned session. Storage Phase A contracts/tests now precede implementation, then a compatible writer, a synthetic Sleep switch and the Legacy type exit. No target storage module, schema, production runner or CLI was added. This design does not begin Storage Phase A or approve 4C3.
 
 Reason: persistent personal history and current readers make a new schema plus writer migration an unnecessarily large first cutover; explicit contracts and differential tests lower the risk of replacing `put_result()` without changing behavior.
+
+### 2026-10-07 — Storage Phase A contract checkpoint
+
+Observed: every field in the three Legacy Sleep `MetricDraft`s and their ordered `FeatureRecord` lineage can be represented by target `PersistableMetricResult` and `StoredFeatureRef` without importing Legacy into target storage contracts. The projection preserves nested metadata and the distinction between missing and measured zero. Run/profile/source/freshness/version values live in `ResultWriteContext`, while database IDs and supersession appear only in post-write identity/outcome types. The repository protocol receives an outer-owned session and exposes explicit active-selection clearing; it has no commit method. `LegacySleepStore` remains the active synthetic sink.
+
+Plan changes: mark Phase A complete. Phase B must implement compatible fingerprinting and result persistence against schema v3, including the source-policy-only early return, freshness-only reselection, historical revision selection and rollback under an outer-owned session. Compare complete synthetic stored rows and selection state with Legacy before considering Phase C. No target writer, schema change, production switch or formula change was made here.
+
+Reason: target storage contracts now represent the observed data without carrying Legacy model classes or prematurely duplicating the fingerprint algorithm.
