@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phases 1–3, Phase 4A/B adapters and Phase 4C1/4C2 synthetic integration complete; Phase 4C3 not implemented.** Canonical types, a pure calculator, two adapters and a Sleep-only synthetic orchestrator exist under `src/mi_fitness_whooping/`. Production still uses Legacy. Legacy remains the behavioral reference until migration integration and audit pass.
+**Phases 1–3, Phase 4A/B characterization, Phase 4C1/4C2 and Storage Phases A–C synthetic integration complete; Phase 4C3 not implemented.** Canonical types, a pure calculator, input/storage projections, a Sleep-only synthetic orchestrator and target-owned result persistence exist under `src/mi_fitness_whooping/`. Production still uses Legacy. Legacy remains the behavioral reference until full migration integration and audit pass.
 
 ## Goal
 
@@ -81,9 +81,9 @@ The domain result may expose an opaque deterministic calculation-input identity,
 
 ## Module ownership and dependencies
 
-The target analytics/sleep boundary owns the pure calculator and the canonical domain owns input/output contracts. Phase 4A/B compatibility adapters map existing inputs to canonical inputs and results back to unchanged persistence drafts. A Sleep-only target orchestrator now coordinates an already-loaded date with explicit run context and a temporary Legacy storage bridge. Full history/replay orchestration and presentation remain proposed target responsibilities; no target production integration exists.
+The target analytics/sleep boundary owns the pure calculator and the canonical domain owns input/output contracts. The input adapter maps already selected Legacy-shaped features to canonical inputs. The result projection maps canonical outputs to target-owned storage contracts; the old Legacy draft adapter is retained only under tests as a reference. A Sleep-only target orchestrator now coordinates an already-loaded date with explicit run context and a target result-storage sink. Full history/replay orchestration and presentation remain proposed target responsibilities; no target production integration exists.
 
-Pure analytics may import canonical date/quality/lineage contracts and receive effective profile values through an explicit boundary. It must not access SQLite, CLI/presentation, Xiaomi-specific records/paths or another feature's implementation-specific `MetricDraft`. A separate transitional output adapter may import Legacy `MetricDraft` solely to preserve the unchanged persistence interface; that dependency must not enter the canonical domain or pure calculator.
+Pure analytics may import canonical date/quality/lineage contracts and receive effective profile values through an explicit boundary. It must not access SQLite, CLI/presentation, Xiaomi-specific records/paths or another feature's implementation-specific `MetricDraft`. Target runtime result persistence no longer imports Legacy `MetricDraft`; test-only comparison code may still use it as the behavioral oracle.
 
 ## Public contracts
 
@@ -133,18 +133,18 @@ Orchestration should adapt existing nightly features/profile values into the new
 
 The Phase 4A input adapter accepts the runner-shaped dated active `nightly` `FeatureRecord` map, already loaded profile v1 data and profile revision. It projects only the requested date and previous 14 nights into `SelectedNight` values, converts `stage_coverage == "COMPLETE"` to `stage_complete`, retains each source feature's identity/quality fields in `NightReference`, and resolves the current plus previous 13 effective targets with Legacy's 480-minute fallback and 300–720 validation. Resolved target minutes are `float`, as in Legacy `_target()`: using an integer could alter the JSON value in storage's fingerprint even when the numeric value compares equal. It returns an empty-current-night input without evaluating per-date targets, preserving Legacy's early return. It does not read SQLite or choose the main session; the current feature builder and active feature selection retain those duties.
 
-The Phase 4B output adapter turns each `SleepMetricResult` into the existing `MetricDraft` shape using the **same original active `FeatureRecord` objects** in result lineage order. It maps enum values to current strings and metric-specific metadata dataclasses to the exact existing nested dictionaries. It verifies each `NightReference` against the original feature's identity and quality fields. It does not calculate result IDs, fingerprints, freshness or active selection. The current `put_result()` path retains those duties, with run context to be supplied by orchestration. This adapter is a transitional boundary; it does not make Legacy's algorithm-defined `MetricDraft` a canonical-domain dependency.
+Phase 4B originally adapted each `SleepMetricResult` to a Legacy `MetricDraft` using original active `FeatureRecord` objects and verified their lineage. That mapping now lives only in `tests/integration/reference_legacy_output.py` for regression comparison. The active target path validates the same selected-feature identity, projects ordered lineage to `StoredFeatureRef`, and publishes `PersistableMetricResult` through target storage. It does not use Legacy drafts or `put_result()`.
 
-The adapters live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented and Phase 4C1 tests the external seam from persisted active nightly features through unchanged `put_result()`. Phase 4C2 adds a Sleep-only orchestrator that accepts loaded nights, profile and explicit run context, and calls a canonical-result sink. Its temporary Legacy storage bridge owns an isolated date transaction, output adaptation and sleep-selection cleanup. The runner's incremental replay clears obsolete active sleep selections when a night disappears; full replay retains them. Both modes preserve historical rows, as characterized. The synthetic path is not the production runner. Phase 4C3 separately addresses any production switch. `Legacy/` and its installed runner remain immutable.
+The current adapters live in `src/mi_fitness_whooping/integration/sleep/`. ADR-002's distinct package identity is implemented; the earlier 4C1 seam remains test-only historical evidence. Phase 4C2's Sleep-only orchestrator still accepts loaded nights, profile and explicit run context. Storage Phase C changes only its sink: `TargetSleepStore` now opens a target storage session, projects results and applies the caller's cleanup policy through the target repository. Incremental replay clears obsolete active Sleep selections when a night disappears; full replay retains them. Both modes preserve historical rows, as characterized. The synthetic path is not the production runner. Phase 4C3 separately addresses any production switch. `Legacy/` and its installed runner remain immutable.
 
-ADR-003 defines the **future**, target-owned analytics result-storage boundary; it has not been implemented. Its first writer is to preserve schema v3 and the current fingerprint, row uniqueness, rerun/reselection, supersession and active-selection behavior. It will receive canonical results and ordered selected-feature lineage rather than Legacy `MetricDraft`/`FeatureRecord`, and use an outer-runner-owned transaction session. In particular, a freshness-only `put_result()` call can return `True` while reselecting an old row whose stored freshness is unchanged. The incremental/full-replay selection difference remains an explicit compatibility policy input, not a Sleep formula. Storage Phase A contracts/tests precede a compatible writer and any synthetic switch; production remains on Legacy.
+ADR-003 defines target-owned analytics result storage. Its schema-v3-compatible writer now preserves the current fingerprint, row uniqueness, rerun/reselection, supersession and active-selection behavior on tested synthetic cases. It receives canonical results and ordered selected-feature lineage rather than Legacy `MetricDraft`/`FeatureRecord`, and the synthetic Sleep sink owns one date's transaction. The future full runner must own the broader transaction. A freshness-only write can still report change while reselecting an old row whose stored freshness is unchanged. The incremental/full-replay selection difference remains an explicit compatibility policy input, not a Sleep formula. Production remains on Legacy.
 
 ## Risks
 
 - **Low:** isolated formula evaluation on synthetic typed inputs.
 - **Medium:** preserving metadata, provenance, profile effective dates, history ordering and storage fingerprints while changing internal types.
 - **High if scope expands:** changing schema, CLI output, source ingestion or user history. Such expansion is outside this feature and requires reconciliation.
-- **High for storage migration:** byte-compatible fingerprint/JSON behavior, older-row reselection and the outer transaction must be proved against synthetic Legacy snapshots before target writes can replace the temporary bridge. ADR-003 is design only.
+- **High for production integration:** synthetic full-row fingerprint/JSON, older-row reselection and one-date rollback now match Legacy, but the full runner's transaction, feature read/write lifecycle, source replay, lock and CLI remain unproven in the target package.
 
 ## Reconciliation log
 
@@ -204,6 +204,14 @@ Plan adjustment: a target Sleep-only orchestrator now accepts already-loaded nig
 
 Reason: this reproduces the observed synthetic Sleep lifecycle without treating Legacy storage or types as permanent target architecture.
 
+### 2026-10-07 — Storage Phase C synthetic result-persistence switch
+
+Observed reality: target `TargetSleepStore` now publishes canonical Score, Need and Debt through the target schema-v3 repository/session. It imports no Legacy storage, `MetricDraft` or SQLite. The old output mapping was moved to test-only reference code, and `LegacySleepStore` was removed from the target package. Synthetic full-path tests compare every persisted result column and active selection with Legacy under a fixed timestamp for first/unchanged/corrected/profile-revision and no-current-night replay cases. A target writer failure rolls back the one-date transaction. Input fixtures still use Legacy-shaped selected `FeatureRecord`s; feature read/write and profile loading are not migrated.
+
+Plan adjustment: Storage Phase C is complete for synthetic Sleep only. Reconcile the remaining input/feature and full-runner boundaries before any production switch. No formula, schema, freshness, profile or CLI contract changed.
+
+Reason: target result persistence is now independently usable without making the production runner depend on a partially migrated pipeline.
+
 ## Audit result
 
-Canonical contracts and pure target calculation exist. Production integration and final feature audit have not started.
+Canonical contracts, pure target calculation and synthetic target result persistence exist. Production integration and final feature audit have not started.

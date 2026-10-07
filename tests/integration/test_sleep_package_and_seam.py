@@ -20,7 +20,7 @@ from analytics.storage.db import (
 )
 from mi_fitness_whooping.analytics.sleep.core import calculate_sleep_core
 from mi_fitness_whooping.integration.sleep.input_adapter import adapt_sleep_input
-from mi_fitness_whooping.integration.sleep.output_adapter import adapt_sleep_result
+from reference_legacy_output import adapt_sleep_result
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -72,12 +72,12 @@ class PackageCoexistenceTests(unittest.TestCase):
             "import analytics.algorithms.foundations as old",
             "import mi_fitness_whooping as target",
             "import mi_fitness_whooping.analytics.sleep.core as new",
-            "import mi_fitness_whooping.integration.sleep.output_adapter as adapter",
+            "import mi_fitness_whooping.integration.sleep.storage_contract_adapter as adapter",
             "assert Path(analytics.__file__).resolve() == Path('Legacy/analytics/__init__.py').resolve()",
             "assert Path(old.__file__).resolve() == Path('Legacy/analytics/algorithms/foundations.py').resolve()",
             "assert Path(target.__file__).resolve() == Path('src/mi_fitness_whooping/__init__.py').resolve()",
             "assert Path(new.__file__).resolve() == Path('src/mi_fitness_whooping/analytics/sleep/core.py').resolve()",
-            "assert Path(adapter.__file__).resolve() == Path('src/mi_fitness_whooping/integration/sleep/output_adapter.py').resolve()",
+            "assert Path(adapter.__file__).resolve() == Path('src/mi_fitness_whooping/integration/sleep/storage_contract_adapter.py').resolve()",
         ))
         for roots in (("Legacy", "src"), ("src", "Legacy")):
             with self.subTest(roots=roots):
@@ -198,7 +198,8 @@ class PackageArchitectureTests(unittest.TestCase):
         pure = (package / "domain" / "sleep" / "contracts.py",
                 package / "analytics" / "sleep" / "core.py")
         adapters = (package / "integration" / "sleep" / "input_adapter.py",
-                    package / "integration" / "sleep" / "output_adapter.py")
+                    package / "integration" / "sleep" / "storage_contract_adapter.py",
+                    package / "integration" / "sleep" / "target_persistence.py")
         for path in (*pure, *adapters):
             with self.subTest(path=path):
                 source = path.read_text(encoding="utf-8")

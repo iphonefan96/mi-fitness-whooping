@@ -1,7 +1,6 @@
-"""Project canonical Sleep results into future target storage inputs.
+"""Project canonical Sleep results into target-owned storage inputs.
 
-This has no database writes and does not replace LegacySleepStore. The current
-Legacy draft represents the same fields through original FeatureRecord inputs.
+This projection performs no database writes or Legacy compatibility calls.
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ from analytics.algorithms.foundations import FeatureRecord, MetricDraft  # noqa:
 from analytics.algorithms.sleep import calculate_sleep_day  # noqa: E402
 from analytics.storage.db import connect, migrate, put_result  # noqa: E402
 from mi_fitness_whooping.integration.sleep.input_adapter import adapt_sleep_input  # noqa: E402
-from mi_fitness_whooping.integration.sleep.output_adapter import adapt_sleep_result  # noqa: E402
+from reference_legacy_output import adapt_sleep_result  # noqa: E402
 from mi_fitness_whooping.analytics.sleep.core import calculate_sleep_core  # noqa: E402
 
 
@@ -120,7 +120,7 @@ class OutputAdapterUnitTests(unittest.TestCase):
             adapt_sleep_result(result, nights | {DAY: wrong_kind})
 
     def test_output_adapter_has_only_compatibility_imports_and_no_clock(self):
-        path = ROOT / "src" / "mi_fitness_whooping" / "integration" / "sleep" / "output_adapter.py"
+        path = ROOT / "tests" / "integration" / "reference_legacy_output.py"
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)

@@ -7,7 +7,7 @@ import json
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,13 +15,29 @@ from analytics.algorithms.foundations import FeatureRecord
 from analytics.algorithms.sleep import calculate_sleep_day
 from analytics.profile.config import load_profile
 from analytics.storage.db import connect, migrate, put_result
-from mi_fitness_whooping.integration.sleep.legacy_persistence import LegacySleepStore
+from mi_fitness_whooping.integration.sleep.target_persistence import TargetSleepStore
 from mi_fitness_whooping.orchestration.sleep import SleepRunContext, run_sleep_day
+from mi_fitness_whooping.storage.sqlite import (
+    SqliteAnalyticsSessionFactory, SqliteMetricResultRepository,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DAY = date(2026, 1, 20)
 SLEEP_NAMES = {"sleep.score", "sleep.need_min", "sleep.debt_min"}
+STAMP = datetime(2026, 1, 21, tzinfo=timezone.utc).isoformat()
+
+
+class FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        instant = datetime(2026, 1, 21, tzinfo=timezone.utc)
+        return instant if tz is None else instant.astimezone(tz)
+
+
+def target_store(db, repository=None):
+    return TargetSleepStore(SqliteAnalyticsSessionFactory(db),
+                            repository or SqliteMetricResultRepository())
 
 
 def nights() -> dict[date, FeatureRecord]:
@@ -60,7 +76,83 @@ def snapshot(db) -> tuple[list[tuple], list[tuple]]:
     return rows, selected
 
 
+def full_snapshot(db) -> tuple[list[dict], list[dict]]:
+    return ([dict(row) for row in db.execute(
+                "SELECT * FROM derived_metric_results ORDER BY result_id")],
+            [dict(row) for row in db.execute(
+                "SELECT * FROM active_metric_selection ORDER BY metric_name,source_scope")])
+
+
 class SleepOrchestrationTests(unittest.TestCase):
+    def test_full_target_path_matches_every_legacy_stored_field(self):
+        default, default_revision = load_profile(None)
+        original = nights()
+        correction_day = DAY - timedelta(days=3)
+        corrected = original | {correction_day: replace(
+            original[correction_day], fingerprint="corrected-night",
+            values=original[correction_day].values | {"tst_min": 300})}
+        for cleanup in (True, False):
+            with self.subTest(cleanup=cleanup), tempfile.TemporaryDirectory() as directory:
+                profile_path = Path(directory) / "profile.json"
+                profile_path.write_text(json.dumps({"schema_version": 1, "values": [{
+                    "field": "sleep_target_min", "value": 450,
+                    "effective_from": (DAY - timedelta(days=13)).isoformat(),
+                }]}), encoding="utf-8")
+                configured, configured_revision = load_profile(profile_path)
+                steps = (
+                    ("first", original, default, default_revision),
+                    ("same", original, default, default_revision),
+                    ("corrected", corrected, default, default_revision),
+                    ("profile", corrected, configured, configured_revision),
+                    ("missing", {day: row for day, row in corrected.items() if day != DAY},
+                     configured, configured_revision),
+                )
+                legacy = connect(Path(directory) / "legacy.sqlite")
+                target = connect(Path(directory) / "target.sqlite")
+                try:
+                    migrate(legacy)
+                    migrate(target)
+                    sink = TargetSleepStore(
+                        SqliteAnalyticsSessionFactory(target),
+                        SqliteMetricResultRepository(lambda: STAMP))
+                    for label, active_nights, profile, revision in steps:
+                        run_context = context(revision, label, cleanup=cleanup)
+                        drafts = calculate_sleep_day(DAY, active_nights, profile)
+                        with patch("analytics.storage.db.datetime", FixedDateTime):
+                            with legacy:
+                                for draft in drafts:
+                                    put_result(legacy, draft, run_id=label,
+                                               profile_revision=revision,
+                                               freshness_status=run_context.stored_freshness,
+                                               source_policy_version=run_context.source_policy_version)
+                                if cleanup and not drafts:
+                                    legacy.execute("""DELETE FROM active_metric_selection
+                                        WHERE metric_date=? AND metric_name IN (?,?,?)
+                                        AND release_channel='production'""",
+                                        (DAY.isoformat(), *sorted(SLEEP_NAMES)))
+                        run_sleep_day(active_nights, profile, run_context, sink)
+                        self.assertEqual(full_snapshot(target), full_snapshot(legacy), label)
+                    rows, selected = full_snapshot(target)
+                    self.assertEqual(len(rows), 8)
+                    self.assertEqual(len(selected), 0 if cleanup else 3)
+                finally:
+                    legacy.close()
+                    target.close()
+
+    def test_target_orchestration_never_calls_legacy_result_writer(self):
+        profile, revision = load_profile(None)
+        with tempfile.TemporaryDirectory() as directory:
+            db = connect(Path(directory) / "target.sqlite")
+            try:
+                migrate(db)
+                with patch("analytics.storage.db.put_result",
+                           side_effect=AssertionError("Legacy result writer called")):
+                    run_sleep_day(nights(), profile, context(revision, "target-only"),
+                                  target_store(db))
+                self.assertEqual(len(full_snapshot(db)[0]), 3)
+            finally:
+                db.close()
+
     def test_first_rerun_correction_and_profile_revision_match_legacy(self):
         default, default_revision = load_profile(None)
         original = nights()
@@ -99,7 +191,7 @@ class SleepOrchestrationTests(unittest.TestCase):
                                                source_policy_version=run_context.source_policy_version)
                         else:
                             results = run_sleep_day(active_nights, profile, run_context,
-                                                    LegacySleepStore(db))
+                                                    target_store(db))
                             self.assertEqual([result.metric.value for result in results],
                                              ["sleep.score", "sleep.need_min", "sleep.debt_min"])
                             self.assertEqual(results[1].value,
@@ -131,12 +223,12 @@ class SleepOrchestrationTests(unittest.TestCase):
                     migrate(db)
                     original = nights()
                     run_sleep_day(original, profile, context(revision, "first"),
-                                  LegacySleepStore(db))
+                                  target_store(db))
                     previous = snapshot(db)
                     without_today = {day: row for day, row in original.items() if day != DAY}
                     self.assertEqual(run_sleep_day(without_today, profile,
                                                    context(revision, "missing", cleanup=cleanup),
-                                                   LegacySleepStore(db)), ())
+                                                   target_store(db)), ())
                     rows, active = snapshot(db)
                     self.assertEqual(rows, previous[0])  # History is never deleted.
                     self.assertEqual(len(active), 0 if cleanup else 3)
@@ -151,24 +243,24 @@ class SleepOrchestrationTests(unittest.TestCase):
                 migrate(db)
                 original = nights()
                 run_sleep_day(original, profile, context(revision, "first"),
-                              LegacySleepStore(db))
+                              target_store(db))
                 previous = snapshot(db)
                 changed_day = DAY - timedelta(days=2)
                 corrected = original | {changed_day: replace(
                     original[changed_day], fingerprint="changed-before-failure")}
 
-                from mi_fitness_whooping.integration.sleep import legacy_persistence
-                original_put_result = legacy_persistence.put_result
+                repository = SqliteMetricResultRepository()
+                original_persist = repository.persist
 
-                def fail_on_need(*args, **kwargs):
-                    if args[1].name == "sleep.need_min":
+                def fail_on_need(session, result, write_context):
+                    if result.metric_name == "sleep.need_min":
                         raise RuntimeError("synthetic write failure")
-                    return original_put_result(*args, **kwargs)
+                    return original_persist(session, result, write_context)
 
-                with patch.object(legacy_persistence, "put_result", side_effect=fail_on_need):
+                with patch.object(repository, "persist", side_effect=fail_on_need):
                     with self.assertRaisesRegex(RuntimeError, "synthetic write failure"):
                         run_sleep_day(corrected, profile, context(revision, "failed"),
-                                      LegacySleepStore(db))
+                                      target_store(db, repository))
                 self.assertEqual(snapshot(db), previous)
             finally:
                 db.close()
@@ -180,9 +272,9 @@ class SleepOrchestrationTests(unittest.TestCase):
             try:
                 migrate(db)
                 db.execute("BEGIN IMMEDIATE")
-                with self.assertRaisesRegex(RuntimeError, "idle connection"):
+                with self.assertRaisesRegex(RuntimeError, "nested analytics transaction"):
                     run_sleep_day(nights(), profile, context(revision, "nested"),
-                                  LegacySleepStore(db))
+                                  target_store(db))
                 self.assertTrue(db.in_transaction)
                 self.assertEqual(snapshot(db), ([], []))
                 db.rollback()
@@ -208,11 +300,16 @@ class SleepOrchestrationTests(unittest.TestCase):
         self.assertNotIn(".utcnow(", source)
         self.assertNotIn("calculate_sleep_day", source)
         self.assertNotIn("score_components", source)
+        self.assertFalse((package / "integration" / "sleep" / "legacy_persistence.py").exists())
+        self.assertFalse((package / "integration" / "sleep" / "output_adapter.py").exists())
         bridge = (package / "integration" / "sleep" /
-                  "legacy_persistence.py").read_text(encoding="utf-8")
-        self.assertIn("TEMPORARY MIGRATION DEBT", bridge)
+                  "target_persistence.py").read_text(encoding="utf-8")
+        self.assertNotIn("from analytics", bridge)
+        self.assertNotIn("sqlite3", bridge)
+        self.assertNotIn("put_result(", bridge)
+        self.assertNotIn("MetricDraft", bridge)
         self.assertNotIn("calculate_sleep_day", bridge)
-        self.assertNotIn("mi_fitness_whooping.orchestration", bridge)
+        self.assertNotIn(".execute(", bridge)
         run_context = (package / "integration" / "sleep" /
                        "run_context.py").read_text(encoding="utf-8")
         self.assertNotIn("from analytics", run_context)

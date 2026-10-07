@@ -1,8 +1,4 @@
-"""Map canonical Sleep Core results to the current persistence-facing draft.
-
-Importing Legacy's MetricDraft is an intentional, isolated compatibility
-dependency. This module does not calculate, fingerprint, persist or select.
-"""
+"""Test-only reference mapping retained from the old output compatibility seam."""
 
 from __future__ import annotations
 
@@ -37,7 +33,7 @@ def adapt_sleep_result(
     result: SleepMetricResult,
     nights: Mapping[date, FeatureRecord],
 ) -> MetricDraft:
-    """Preserve original feature objects and Legacy's exact draft field shape."""
+    """Keep pre-switch comparison behavior out of the target runtime package."""
     inputs = tuple(_original_feature(ref, nights) for ref in result.lineage)
     return MetricDraft(
         name=result.metric.value,
