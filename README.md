@@ -21,8 +21,8 @@ import path itself, so no installation or manual `PYTHONPATH` is needed. Python
 3.11 or newer must be available as `python3`.
 
 In the baseline, analytics is run manually with this command; no schedule is
-installed for it. `--source`, `--db` and `--profile` have no defaults. The target
-command can continue an analytics database written by the Legacy analytics CLI,
+installed for it. `--source` and `--db` are required. `--profile` is optional;
+without it, profile v1 uses its built-in defaults. The target command can continue an analytics database written by the Legacy analytics CLI,
 and Legacy can continue one written by target; both take the same `<db>.lock`.
 
 Run the existing calculations and show a date:
