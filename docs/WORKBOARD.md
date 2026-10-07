@@ -1,12 +1,11 @@
 # Workboard
 
-Shared goal: an independent target `run` for existing Mi Fitness analytics. The local implementation already exists at code baseline `62e4bceaf94a1f97ff2b6473f18d21f1b065d3d4`; installed ETL and LaunchAgent remain unchanged. This board coordinates review and any necessary fixes, not a second rewrite.
+This is the current handoff for the usable Mi Fitness analytics baseline. Project behavior is recorded in `CURRENT_STATE.md`; optional work stays in `BACKLOG.md`. Only the integrator edits this board.
 
-| Work | Owner | Branch | Code baseline | Status |
-|---|---|---|---|---|
-| Target `run` findings and fixes | Claude (executor) | `agent/claude-target-run` | `62e4bceaf94a1f97ff2b6473f18d21f1b065d3d4` | Ready for review/fixes |
-| Independent review of exact executor SHA | Codex (reviewer) | `agent/codex-review` | same baseline | Waiting for handoff |
+- **Last accepted base:** `a9e7f9955a7cf03ce1235559e27106ede8205a8e` (Claude target-run cleanup fix; Codex review PASS).
+- **Handing off from:** `agent/codex-review`. The receiver obtains the handoff SHA from that branch's HEAD and the handoff report; it is intentionally not embedded here.
+- **Receiving branch:** `agent/claude-target-run`. Review the setup diff from the accepted base before writing. If it passes, fast-forward this branch to the reviewed handoff SHA; do not reset or force-update it.
+- **Next task:** Verify the installed analytics wrapper, CLI/status output, profile and database path contracts against the local target `run` using synthetic fixtures and separate disposable SQLite copies. Record the precise compatibility gaps and the decision needed before any scheduled switch. Do not change the installed ETL, LaunchAgent or live databases, and do not add metrics.
+- **Blocker:** Scheduled activation needs its own reviewed deployment decision; the installed job remains unchanged.
 
-Claude commits only on the executor branch and hands off: **commit SHA; changed behavior/files; test commands and results; remaining Legacy/runtime dependencies; known limits**. Codex reviews that exact SHA from its own worktree and reports **PASS** or **FIX** with file/line and a reproducible reason. Codex does not write to Claude's branch. After PASS, the integrator alone transfers the verified commit to `feature/sleep-core-v1` and pushes it.
-
-Only the integrator edits this board. Agents use synthetic data or their own disposable SQLite copies; they never share a live `analytics.sqlite`. Current behavior and optional work belong in `CURRENT_STATE.md` and `BACKLOG.md`, not here.
+At the next stop, leave one coherent commit and report its SHA, changed files/behavior, tests, remaining dependencies and PASS/FIX findings. The next receiver reviews that exact commit before continuing. One agent writes at a time.

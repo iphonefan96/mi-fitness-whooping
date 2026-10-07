@@ -4,6 +4,8 @@ The current project goal is a usable baseline from existing Mi Fitness data and 
 
 ## For each task
 
+At a branch handoff, first follow `AGENTS.md` and the current `docs/WORKBOARD.md`: identify your worktree and HEAD, review the previous branch's diff from the accepted base, fix confirmed defects, then continue the recorded next task. This is the same task process, not a separate workflow.
+
 1. **Inspect:** read the active plan and relevant contracts, then inspect code and tests. Identify what already works and what the user will be able to do after this task.
 2. **Implement:** make a coherent vertical change. Prefer existing code and stable interfaces; avoid speculative abstractions and unrelated refactors.
 3. **Verify:** run targeted behavior/compatibility tests with synthetic data. Check reruns and data integrity when storage or orchestration changes. Use broader tests at integration checkpoints.

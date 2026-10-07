@@ -17,6 +17,8 @@ The runner owns one analytics lock and transaction. `TargetSleepStore` accepts t
 
 ## Next necessary boundary
 
+The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
+
 Keep the local target command available. Before changing the installed analytics job, verify its intended profile and database paths, compare its complete output/operational status contract, and review deployment/rollback with the installed ETL and LaunchAgent. This is a deployment decision, not a request to add metrics, rebuild ingestion or rewrite the runner again. Existing old-correction limits and optional product work stay in `BACKLOG.md`.
 
 The source copy used for rehearsal was set to DELETE journal mode after SQLite backup so sidecar creation did not trip the source fingerprint guard. Read-only backup can update live `-shm` metadata; no live main database or personal values were changed or added to Git.
