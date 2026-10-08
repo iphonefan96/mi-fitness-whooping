@@ -62,6 +62,27 @@ def _all_dates(source: XiaomiAdapter) -> set[date]:
     return dates
 
 
+def _has_change_log(db: sqlite3.Connection) -> bool:
+    return db.execute("""SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='normalized_change_log'""").fetchone() is not None
+
+
+def _change_log_dates(db: sqlite3.Connection, after: str) -> set[date]:
+    """Old and new dates of canonical changes a reconciled source logged after `after`.
+
+    A reconciliation rebuild re-normalizes every row and keeps unchanged rows'
+    import times. A corrected daily aggregate therefore need not advance
+    `daily_summary.updated_at`, and a deleted record leaves no row at all; the
+    candidate's `normalized_change_log` is the record of both. Sources without
+    the table (the installed ETL) are unaffected.
+    """
+    dates: set[date] = set()
+    for row in db.execute("""SELECT affected_local_date, old_local_date, new_local_date
+            FROM normalized_change_log WHERE detected_at>?""", (after,)):
+        dates.update(date.fromisoformat(value) for value in row if value)
+    return dates
+
+
 def _changed_dates(source: XiaomiAdapter, imported_after: str | None, last_max_ts: int | None) -> set[date]:
     if imported_after is None:
         return _all_dates(source)
@@ -74,6 +95,8 @@ def _changed_dates(source: XiaomiAdapter, imported_after: str | None, last_max_t
         "SELECT local_date FROM daily_summary WHERE updated_at>?", (imported_after,)))
     for r in db.execute("SELECT sleep_end_utc,utc_offset_seconds FROM sleep_sessions WHERE imported_at>?", (imported_after,)):
         result.add(sleep_date(utc_from_epoch(r[0]), offset_seconds=r[1]))
+    if _has_change_log(db):
+        result.update(_change_log_dates(db, imported_after))
     if last_max_ts is not None:
         # 48h overlap by source measurement timestamp, not wall-clock now.
         lo = last_max_ts - 48 * 3600
@@ -94,6 +117,8 @@ def _source_checkpoint(source: XiaomiAdapter) -> tuple[str | None, int | None]:
                          ("stress", "imported_at"), ("sleep_sessions", "imported_at"),
                          ("daily_summary", "updated_at")):
         values.append(db.execute(f"SELECT MAX({field}) FROM {table}").fetchone()[0])
+    if _has_change_log(db):
+        values.append(db.execute("SELECT MAX(detected_at) FROM normalized_change_log").fetchone()[0])
     last_import = max((v for v in values if v is not None), default=None)
     max_ts = db.execute("SELECT MAX(max_source_timestamp) FROM source_databases").fetchone()[0]
     return last_import, max_ts
