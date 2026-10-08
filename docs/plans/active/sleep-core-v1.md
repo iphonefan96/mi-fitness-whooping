@@ -28,6 +28,16 @@ The baseline above is complete and runs manually. The next architectural result 
 
 **Activity finding:** Legacy has no dedicated activity calculation. Daily activity and vendor stress are presented from the selected daily feature; `trend.steps.*` and `trend.stress_vendor.*` come from the shared trend function used by vitals and sleep series. An Activity component would therefore be a new abstraction without its own calculation. Extracting the shared baselines/deviations/trends family (and with it the monitoring coupling) is the remaining analytics boundary and needs a user decision before it starts.
 
+## Current stage: shared series statistics and vitals monitoring (2026-10-08)
+
+Selected by the user after the Recovery/vitals stage. Existing calculations only; schema v3, formulas, values, statuses, units, metadata, versions and persistence order stay unchanged.
+
+- **Series component** (`domain|analytics|integration/series`): `baseline.{rhr,sleep_tst,spo2,respiratory}.{band_mean,ewma}`, `{rhr,spo2,respiratory}.deviation` and `trend.{rhr,sleep_tst,spo2,respiratory,steps,stress_vendor}.{14,30,90}d.theilsen`. Input is a per-series map of dated observations with lineage; the adapter owns the feature-field mapping.
+- **Vitals monitoring** moves into the Recovery/vitals component: `anomaly.{rhr,spo2,respiratory}`, `health_signal.physiological_watch` and `anomaly.rhr_cusum`. It receives a typed personal band per signal instead of foundation `MetricDraft`s; the adapter maps the series `band_mean` result to that band. This removes the private monitoring/foundation-draft coupling.
+- **Shared domain types:** `FeatureLineage` and the calculated `MetricResult` move to `domain/metrics.py`; result projection to the target writer becomes one shared integration function.
+- **Stays in `baseline`:** sleep duration/stage/efficiency metrics and `sleep.regularity` (sleep family, not in this stage), source, features, feature store, runner. No Activity component: steps and vendor stress keep their existing trends through the series component.
+- **Acceptance:** existing full-table Legacy differential scenarios unchanged; randomized synthetic characterization of series and monitoring against Legacy `baselines`, `trends`, `calculate_monitoring_day` and `calculate_cusum_series`, including CUSUM state carry-over and stale/calibrating bands; import guards for every pure module; a disposable real-data copy comparison.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.

@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from mi_fitness_whooping.analytics.recovery_vitals import core as vitals
-from mi_fitness_whooping.domain.recovery_vitals.contracts import VitalsResult
+from mi_fitness_whooping.domain.metrics import MetricResult
 from mi_fitness_whooping.integration.recovery_vitals.adapter import vitals_daily, vitals_night
 
 
@@ -66,7 +66,7 @@ def _valid_number(value: object, lo: float | None = None, hi: float | None = Non
     return num
 
 
-def _vitals_draft(result: VitalsResult, records: dict[tuple[str, str], FeatureRecord]) -> MetricDraft:
+def _vitals_draft(result: MetricResult, records: dict[tuple[str, str], FeatureRecord]) -> MetricDraft:
     return MetricDraft(result.name, result.day, result.value, result.unit, result.status,
                        result.algorithm_id, result.algorithm_version, result.source_type,
                        result.upstream_project, result.upstream_commit,

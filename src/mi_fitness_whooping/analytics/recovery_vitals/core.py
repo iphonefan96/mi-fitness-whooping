@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Mapping
 
+from mi_fitness_whooping.domain.metrics import FeatureLineage, MetricResult
 from mi_fitness_whooping.domain.recovery_vitals.contracts import (
-    FeatureLineage, RecoveryTarget, VitalsDaily, VitalsNight, VitalsResult,
+    RecoveryTarget, VitalsDaily, VitalsNight,
 )
 
 
@@ -30,8 +31,8 @@ WEIGHTS = {"hrv": .55, "rhr": .25, "sleep": .20}
 def _direct(name: str, day: date, value: float | None, unit: str, status: str,
             algorithm_id: str, lineage: tuple[FeatureLineage, ...], metadata: dict, *,
             source_type: str = "OUR_DERIVED", upstream_project: str | None = None,
-            upstream_commit: str | None = None, confidence: str = "MEDIUM") -> VitalsResult:
-    return VitalsResult(name, day, value, unit, status, algorithm_id,
+            upstream_commit: str | None = None, confidence: str = "MEDIUM") -> MetricResult:
+    return MetricResult(name, day, value, unit, status, algorithm_id,
                         DIRECT_VITALS_ALGORITHM_VERSION, lineage, metadata, source_type,
                         upstream_project, upstream_commit, confidence)
 
@@ -46,7 +47,7 @@ def _valid_number(value: object, lo: float | None = None, hi: float | None = Non
     return num
 
 
-def night_heart_rate(day: date, night: VitalsNight) -> VitalsResult:
+def night_heart_rate(day: date, night: VitalsNight) -> MetricResult:
     rhr = _valid_number(night.night_rhr_bpm, 25, 240)
     return _direct("rhr.nightly", day, rhr, "bpm", "VALID" if rhr is not None else "INSUFFICIENT_DATA",
                    "rhr.openstrap_nocturnal_v1", (night.lineage,),
@@ -55,7 +56,7 @@ def night_heart_rate(day: date, night: VitalsNight) -> VitalsResult:
                    upstream_project="OpenStrap", upstream_commit=OPENSTRAP_COMMIT)
 
 
-def night_spo2(day: date, night: VitalsNight) -> tuple[VitalsResult, ...]:
+def night_spo2(day: date, night: VitalsNight) -> tuple[MetricResult, ...]:
     lineage = (night.lineage,)
     spo2_count = int(night.spo2_samples or 0)
     results = [_direct("spo2.nightly_count", day, float(spo2_count), "samples", "VALID",
@@ -76,7 +77,7 @@ def night_spo2(day: date, night: VitalsNight) -> tuple[VitalsResult, ...]:
     return tuple(results)
 
 
-def night_respiratory(day: date, night: VitalsNight) -> VitalsResult:
+def night_respiratory(day: date, night: VitalsNight) -> MetricResult:
     resp = _valid_number(night.respiratory_rate_bpm, 4, 60)
     return _direct("respiratory.nightly_mean", day, resp, "breaths/min",
                    "REDUCED" if resp is not None else "INSUFFICIENT_DATA",
@@ -88,7 +89,7 @@ def night_respiratory(day: date, night: VitalsNight) -> VitalsResult:
 
 
 def vendor_daily_rhr(day: date, night: VitalsNight | None,
-                     daily: VitalsDaily | None) -> VitalsResult | None:
+                     daily: VitalsDaily | None) -> MetricResult | None:
     """Vendor daily RHR, falling back to the date-joined value on the night."""
     rhr = _valid_number(daily.daily_rhr_bpm, 25, 240) if daily else None
     lineage = (daily.lineage,) if daily and rhr is not None else ()
@@ -180,7 +181,7 @@ def _ready(base: Baseline | None, day: date) -> bool:
 
 
 def calculate_recovery(day: date, nights: Mapping[date, VitalsNight],
-                       target: RecoveryTarget) -> VitalsResult | None:
+                       target: RecoveryTarget) -> MetricResult | None:
     """Recovery for one date from selected nights; None when the date has no night."""
     night = nights.get(day)
     if night is None:
@@ -228,7 +229,7 @@ def calculate_recovery(day: date, nights: Mapping[date, VitalsNight],
                 "baseline_take_readings": 30,
                 "baseline_excludes_current": True,
                 "local_xiaomi_requires_sleep_and_rhr": gated_hrv is None}
-    return VitalsResult("recovery.score", day, score, "score_0_100", status,
+    return MetricResult("recovery.score", day, score, "score_0_100", status,
                         "recovery.vitals_anchored_v3", RECOVERY_ALGORITHM_VERSION,
                         tuple(unique.values()), metadata, "OUR_DERIVED", "Vitals", VITALS_COMMIT,
                         "MEDIUM")

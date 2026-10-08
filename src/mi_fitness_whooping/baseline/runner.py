@@ -21,8 +21,8 @@ from mi_fitness_whooping.baseline.profile import load_profile
 from mi_fitness_whooping.baseline.feature_store import (active_feature_records, connect, delete_active_feature,
                                   get_state, migrate, put_feature, set_state)
 from mi_fitness_whooping.baseline.result_adapter import persistable
-from mi_fitness_whooping.integration.recovery_vitals.adapter import (recovery_for_day, to_persistable,
-                                                              vitals_night)
+from mi_fitness_whooping.integration.metric_results import to_persistable
+from mi_fitness_whooping.integration.recovery_vitals.adapter import recovery_for_day, vitals_night
 from mi_fitness_whooping.integration.sleep.run_context import SleepRunContext
 from mi_fitness_whooping.integration.sleep.target_persistence import TargetSleepStore
 from mi_fitness_whooping.orchestration.sleep import run_sleep_day

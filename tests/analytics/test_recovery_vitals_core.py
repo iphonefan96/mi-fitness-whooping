@@ -141,7 +141,8 @@ class RecoveryVitalsCharacterizationTests(unittest.TestCase):
 
     def test_calculation_is_independent_of_storage_runner_and_legacy(self):
         package = ROOT / "src" / "mi_fitness_whooping"
-        for path in (package / "domain" / "recovery_vitals" / "contracts.py",
+        for path in (package / "domain" / "metrics.py",
+                     package / "domain" / "recovery_vitals" / "contracts.py",
                      package / "analytics" / "recovery_vitals" / "core.py"):
             with self.subTest(path=path.name):
                 source = path.read_text(encoding="utf-8")
@@ -154,7 +155,8 @@ class RecoveryVitalsCharacterizationTests(unittest.TestCase):
                 self.assertNotIn("sqlite3", imported)
                 self.assertFalse(any(name == "analytics" or name.startswith("analytics.")
                                      for name in imported))
-                self.assertTrue(all(name.startswith(("mi_fitness_whooping.domain.recovery_vitals",
+                self.assertTrue(all(name.startswith(("mi_fitness_whooping.domain.metrics",
+                                                     "mi_fitness_whooping.domain.recovery_vitals",
                                                      "mi_fitness_whooping.analytics.recovery_vitals"))
                                     for name in project), project)
                 self.assertNotIn(".now(", source)

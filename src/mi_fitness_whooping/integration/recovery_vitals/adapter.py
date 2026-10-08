@@ -1,4 +1,4 @@
-"""Map selected features and profile v1 to Recovery/vitals inputs and storage values.
+"""Map selected features and profile v1 to Recovery/vitals inputs.
 
 Feature selection and persistence stay with the caller; this module performs
 no database access.
@@ -7,34 +7,17 @@ no database access.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping
 
 from mi_fitness_whooping.analytics.recovery_vitals.core import calculate_recovery
+from mi_fitness_whooping.domain.metrics import MetricResult
 from mi_fitness_whooping.domain.recovery_vitals.contracts import (
-    FeatureLineage, RecoveryTarget, VitalsDaily, VitalsNight, VitalsResult,
+    RecoveryTarget, VitalsDaily, VitalsNight,
 )
-from mi_fitness_whooping.storage.contracts import PersistableMetricResult, StoredFeatureRef
-
-
-class SelectedFeature(Protocol):
-    kind: str
-    day: date
-    values: Mapping[str, Any]
-    fingerprint: str
-    source_count: int
-    source_ids_hash: str
-    measurement_start: str | None
-    measurement_end: str | None
-    quality_flags: tuple[str, ...]
+from mi_fitness_whooping.integration.metric_results import SelectedFeature, lineage
 
 
 _NIGHT_FIELDS = tuple(name for name in VitalsNight.__dataclass_fields__ if name != "lineage")
-
-
-def lineage(feature: SelectedFeature) -> FeatureLineage:
-    return FeatureLineage(feature.kind, feature.day, feature.fingerprint, feature.source_count,
-                          feature.source_ids_hash, feature.measurement_start,
-                          feature.measurement_end, tuple(feature.quality_flags))
 
 
 def vitals_night(feature: SelectedFeature) -> VitalsNight:
@@ -58,24 +41,8 @@ def recovery_target(profile: Mapping[str, Any], day: date) -> RecoveryTarget:
 
 
 def recovery_for_day(day: date, nights: Mapping[date, VitalsNight],
-                     profile: Mapping[str, Any]) -> VitalsResult | None:
+                     profile: Mapping[str, Any]) -> MetricResult | None:
     """Calculate Recovery from mapped nights; the target is resolved only for a night."""
     if day not in nights:
         return None
     return calculate_recovery(day, nights, recovery_target(profile, day))
-
-
-def to_persistable(result: VitalsResult) -> PersistableMetricResult:
-    return PersistableMetricResult(
-        metric_name=result.name, day=result.day, value=result.value, unit=result.unit,
-        status=result.status, algorithm_id=result.algorithm_id,
-        algorithm_version=result.algorithm_version, metadata=result.metadata,
-        inputs=tuple(StoredFeatureRef(
-            kind=ref.kind, day=ref.day, fingerprint=ref.fingerprint,
-            source_count=ref.source_count, source_ids_hash=ref.source_ids_hash,
-            measurement_start=ref.measurement_start, measurement_end=ref.measurement_end,
-            quality_flags=ref.quality_flags,
-        ) for ref in result.lineage),
-        source_type=result.source_type, upstream_project=result.upstream_project,
-        upstream_commit=result.upstream_commit, confidence=result.confidence,
-    )
