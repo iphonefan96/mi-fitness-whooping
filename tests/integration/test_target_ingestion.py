@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import functools
+import io
 import json
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "Legacy"))
@@ -36,7 +39,23 @@ def tearDownModule() -> None:
 
 
 class CandidateSuiteOnPort(candidate_tests.ReconciliationTests):
-    """All 24 candidate regression tests, executed against the target port."""
+    """The candidate regression tests, executed against the target port.
+
+    One expectation differs by contract: an expected source database that is
+    absent is SOURCE_INCOMPLETE, not a transient busy source.
+    """
+
+    def test_missing_whole_source_db_is_safe_skip(self):
+        candidate_tests.hr(self.ru, T0, 60)
+        self.run_reconcile(rebuild=True)
+        before = candidate_tests.hash_file(self.output / port.TARGET_NAME)
+        self.ru.close()
+        self.ru_path.unlink()
+        self.ru = sqlite3.connect(":memory:")
+        with self.assertRaises(port.SourceIncompleteError) as raised:
+            self.run_reconcile(full=True)
+        self.assertNotIsInstance(raised.exception, port.SourceSnapshotBusyError)
+        self.assertEqual(candidate_tests.hash_file(self.output / port.TARGET_NAME), before)
 
 
 def table(db: sqlite3.Connection, name: str, *extra: str) -> None:
@@ -94,14 +113,14 @@ def change_log(path: Path) -> list[tuple]:
 
 
 class ExplicitContractTests(unittest.TestCase):
-    def test_policy_and_equivalence_are_required(self):
+    def test_equivalence_is_required_and_policy_defaults_to_the_accepted_contract(self):
         with tempfile.TemporaryDirectory() as temp:
             sources = Sources(Path(temp))
             self.addCleanup(sources.close)
+            sources.put("ru", "heart_rate", T0, {"bpm": 60})
             out = Path(temp) / "out"
             for kwargs in ({}, {"selection_policy": "unresolved_exclude"},
-                           {"equivalence": "strict-v1"}, {"selection_policy": "ru_compat ",
-                                                          "equivalence": "strict-v1"}):
+                           {"selection_policy": "ru_compat ", "equivalence": "strict-v2"}):
                 with self.subTest(kwargs=kwargs):
                     with self.assertRaisesRegex(ValueError, "explicit"):
                         _original_reconcile(sources.root, out, rebuild=True, **kwargs)
@@ -110,8 +129,13 @@ class ExplicitContractTests(unittest.TestCase):
                                   str(sources.root), "--output", str(out), "--rebuild-from-source"],
                                  capture_output=True, text=True)
             self.assertEqual(cli.returncode, 2)
-            self.assertIn("--selection-policy", cli.stderr)
+            self.assertIn("--equivalence", cli.stderr)
             self.assertFalse(out.exists())
+            result = _original_reconcile(sources.root, out, rebuild=True, equivalence="strict-v2")
+            self.assertEqual(result["conflict_policy_version"], "physiology-v1+strict-v2:unresolved_exclude")
+            again = _original_reconcile(sources.root, out, equivalence="strict-v2")
+            self.assertEqual((again["status"], again["conflict_policy_version"]),
+                             ("NO NEW SOURCE DATA", "physiology-v1+strict-v2:unresolved_exclude"))
 
 
 class NoLegacyRuntimeTests(unittest.TestCase):
@@ -214,3 +238,171 @@ class CandidateParityScenarios(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaVersionSources:
+    """CN/RU databases whose `red_dot_day` schemas differ like the NAS snapshot."""
+
+    OLD = ("sid TEXT NOT NULL,key TEXT NOT NULL,tag TEXT NOT NULL,time INTEGER NOT NULL,"
+           "zone_offset INTEGER NOT NULL,zone_name TEXT,valueList BLOB,value TEXT NOT NULL,"
+           "time_zero INTEGER NOT NULL,deleted INTEGER DEFAULT 0,isUploaded INTEGER DEFAULT 0")
+    NEW = OLD + ",category TEXT DEFAULT '',sportFitnesId INTEGER,extra TEXT,cheat_info TEXT"
+
+    def __init__(self, root: Path, ru_extra: str = "") -> None:
+        self.root = root / "source"
+        self.db = {}
+        for region, columns in (("cn", self.OLD), ("ru", self.NEW + ru_extra)):
+            path = self.root / "DataBase" / "123" / region / "123.db"
+            path.parent.mkdir(parents=True)
+            db = sqlite3.connect(path)
+            for name in ("heart_rate", "sleep", "steps"):
+                table(db, name)
+            db.execute(f"CREATE TABLE red_dot_day({columns},PRIMARY KEY(sid,key,time))")
+            db.commit()
+            self.db[region] = db
+
+    def put(self, region: str, when: int, **columns) -> None:
+        row = {"sid": "device", "key": "red_dot", "tag": "days", "time": when, "zone_offset": 0,
+               "value": json.dumps({"dot": 1}), "time_zero": when, **columns}
+        self.db[region].execute(f"INSERT INTO red_dot_day({','.join(row)}) VALUES({','.join('?' * len(row))})",
+                                tuple(row.values()))
+        self.db[region].commit()
+
+    def close(self) -> None:
+        for db in self.db.values():
+            db.close()
+
+
+class StrictV2Tests(unittest.TestCase):
+    def build(self, sources, root: Path, rule: str) -> Path:
+        out = root / rule
+        result = _original_reconcile(sources.root, out, rebuild=True, equivalence=rule)
+        self.assertEqual(result["status"], "SUCCESS")
+        return out / port.TARGET_NAME
+
+    def conflicts(self, path: Path) -> dict[int, tuple[str, str]]:
+        with closing(sqlite3.connect(path)) as db:
+            by_time = {}
+            for status, reason, physical in db.execute(
+                    "SELECT status, selection_reason, physical_ids_json FROM source_conflicts"):
+                when = db.execute("SELECT source_timestamp FROM physical_records WHERE physical_record_id=?",
+                                  (json.loads(physical)[0],)).fetchone()[0]
+                by_time[when] = (status, reason)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM physical_records WHERE status='ACTIVE'")
+                             .fetchone()[0], 2 * len(by_time))   # every alternative kept
+            return by_time
+
+    def test_added_columns_with_their_defaults_are_a_schema_difference_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sources = SchemaVersionSources(root)
+            self.addCleanup(sources.close)
+            cases = {
+                T0: ({}, "EQUIVALENT_SCHEMA_DEFAULT_DIFF"),                       # NAS red_dot_day pattern
+                T0 + 60: ({"category": "sport"}, "UNRESOLVED_EXCLUDED"),          # not the declared default
+                T0 + 120: ({"category": None}, "UNRESOLVED_EXCLUDED"),            # NULL is not DEFAULT ''
+                T0 + 180: ({"sportFitnesId": 7}, "UNRESOLVED_EXCLUDED"),          # nullable, no DEFAULT
+                T0 + 240: ({"valueList": b"\x01"}, "UNRESOLVED_EXCLUDED"),        # shared data column
+            }
+            for when, (ru_columns, _) in cases.items():
+                sources.put("cn", when, isUploaded=0)
+                sources.put("ru", when, isUploaded=1, **{"category": "", **ru_columns})
+            v2 = self.conflicts(self.build(sources, root, "strict-v2"))
+            self.assertEqual({when: state for when, (state, _) in v2.items()},
+                             {when: expected for when, (_, expected) in cases.items()})
+            self.assertEqual(v2[T0][1], "EQUIVALENT_SCHEMA_DEFAULTS:category,cheat_info,extra,sportFitnesId")
+            v1 = self.conflicts(self.build(sources, root, "strict-v1"))
+            self.assertEqual(v1[T0][0], "UNRESOLVED_EXCLUDED")    # the former false conflict
+            with closing(sqlite3.connect(root / "strict-v2" / port.TARGET_NAME)) as db:
+                roles = sorted(r for (r,) in db.execute(
+                    "SELECT role FROM normalized_provenance WHERE logical_record_id IN "
+                    "(SELECT logical_record_id FROM source_conflicts WHERE status='EQUIVALENT_SCHEMA_DEFAULT_DIFF')"))
+                self.assertEqual(roles, ["DUPLICATE_EQUIVALENT", "PRIMARY"])
+
+    def test_undeclared_or_non_constant_defaults_stay_conflicts(self):
+        for extra, value in ((",stamp TEXT DEFAULT CURRENT_TIMESTAMP", {"stamp": "2026-01-01 00:00:00"}),
+                             (",level INTEGER NOT NULL DEFAULT (1+1)", {"level": 2}),
+                             (",flag INTEGER NOT NULL", {"flag": 0})):
+            with self.subTest(extra), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                sources = SchemaVersionSources(root, ru_extra=extra)
+                self.addCleanup(sources.close)
+                sources.put("cn", T0)
+                sources.put("ru", T0, category="", **value)
+                self.assertEqual(self.conflicts(self.build(sources, root, "strict-v2"))[T0][0],
+                                 "UNRESOLVED_EXCLUDED")
+
+    def test_meaningful_shared_columns_and_upload_flag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sources = Sources(root)
+            self.addCleanup(sources.close)
+            for region, upload, values, offset, raw in (("cn", 0, "[60,61]", 0, b"\x01\x02"),
+                                                        ("ru", 1, "[60,99]", 3600, b"\x01\x03")):
+                sources.put(region, "heart_rate_day", T0, {"avg_rhr": 60}, valueList=values)
+                sources.put(region, "heart_rate", T0, {"bpm": 60}, zone_offset=offset)
+                sources.put(region, "sleep_original_data", T0, {"v": 1}, rawData=raw)
+                sources.put(region, "steps", T0, {"steps": 10}, isUploaded=upload)
+            out = root / "v2"
+            _original_reconcile(sources.root, out, rebuild=True, equivalence="strict-v2")
+            self.assertEqual(conflict_states(out / port.TARGET_NAME),
+                             {"heart_rate_day": "UNRESOLVED_EXCLUDED", "heart_rate": "UNRESOLVED_EXCLUDED",
+                              "sleep_original_data": "UNRESOLVED_EXCLUDED",
+                              "steps": "EQUIVALENT_PHYSIOLOGY_METADATA_DIFF"})
+
+
+class MissingSourceDatabaseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.sources = Sources(self.root)
+        self.sources.put("cn", "heart_rate", T0, {"bpm": 60})
+        self.sources.put("ru", "heart_rate", T0 + 60, {"bpm": 62})
+        self.out = self.root / "out"
+        self.target = self.out / port.TARGET_NAME
+
+    def cli(self, *extra: str) -> tuple[int, dict]:
+        run = subprocess.run([str(ROOT / "mi-fitness-whooping"), "reconcile", "--source", str(self.sources.root),
+                              "--output", str(self.out), "--equivalence", "strict-v2", *extra],
+                             capture_output=True, text=True)
+        return run.returncode, json.loads(run.stdout)
+
+    def test_absent_expected_database_is_source_incomplete_and_publishes_nothing(self):
+        self.assertEqual(self.cli("--rebuild-from-source")[0], 0)
+        before = self.target.read_bytes()
+        cn = self.sources.root / "DataBase" / "123" / "cn"
+        self.sources.db["cn"].close()
+        shutil.move(cn, self.root / "cn-away")
+        for mode in ((), ("--full-reconcile",), ("--rebuild-from-source",)):
+            with self.subTest(mode=mode):
+                code, result = self.cli(*mode)
+                self.assertEqual(code, 3)
+                self.assertEqual(result["status"], "SOURCE_INCOMPLETE")
+                self.assertEqual(result["missing_databases"],
+                                 [{"relative_path": "DataBase/123/cn/123.db",
+                                   "source_key": "xiaomi-account:123:region:cn"}])
+                self.assertEqual(self.target.read_bytes(), before)
+                self.assertEqual(sorted(p.name for p in self.out.iterdir()), [port.TARGET_NAME])
+        shutil.move(self.root / "cn-away", cn)
+        # Restored unchanged: the published generation is current again.
+        self.assertEqual(self.cli(), (0, {**self.cli()[1], "status": "NO NEW SOURCE DATA"}))
+
+    def test_busy_source_is_reported_separately(self):
+        self.assertEqual(self.cli("--rebuild-from-source")[0], 0)
+        out = io.StringIO()
+        with patch.object(port, "stable_stage_database", side_effect=port.SourceSnapshotBusyError("busy")), \
+                redirect_stdout(out):
+            code = port.main(["--source", str(self.sources.root), "--output", str(self.out),
+                              "--equivalence", "strict-v2", "--full-reconcile"])
+        self.assertEqual((code, json.loads(out.getvalue())["status"], json.loads(out.getvalue())["reason"]),
+                         (0, "SKIPPED", "SOURCE_BUSY"))
+
+    def test_first_build_has_no_expected_list(self):
+        self.sources.db["cn"].close()
+        shutil.rmtree(self.sources.root / "DataBase" / "123" / "cn")
+        code, result = self.cli("--rebuild-from-source")
+        self.assertEqual((code, result["status"]), (0, "SUCCESS"))
+        with closing(sqlite3.connect(self.target)) as db:
+            self.assertEqual([k for (k,) in db.execute("SELECT source_key FROM source_database_identities")],
+                             ["xiaomi-account:123:region:ru"])

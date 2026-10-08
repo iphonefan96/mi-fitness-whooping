@@ -3,13 +3,18 @@
 Behavior-preserving port of `Legacy/mi_fitness_reconcile.py` (2.1.0-candidate).
 Differences, all at the contract boundary:
 
-* The CN/RU selection policy and the equivalence rule have no defaults; a run
-  without an explicit choice is refused.
+* The accepted CN/RU selection policy is `unresolved_exclude` (default); the
+  equivalence rule has no default and a run without it is refused.
 * Equivalence `candidate-v1` is the candidate's rule: active alternatives are
   equivalent when canonical value, timestamp and local date match, so every
   other column (e.g. `valueList`, `rawData`, `zone_offset`, `isUploaded`) is
   ignored. `strict-v1` compares the complete source row and ignores only
-  `isUploaded`. The choice is recorded in the conflict policy version.
+  `isUploaded`. `strict-v2` is strict-v1 except that a column absent from one
+  schema version equals only the declared default of that column in the other
+  version (see `declared_default`). The choice is recorded in the conflict
+  policy version and returned in every result.
+* A database recorded in the published history but absent from the source tree
+  stops the run (`SOURCE_INCOMPLETE`, exit 3) before anything is written.
 
 This never writes a source DB or the installed production health.sqlite. It
 builds/updates only ``health-rebuild.sqlite`` under an explicit output directory.
@@ -22,6 +27,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -29,6 +35,7 @@ import tempfile
 import time
 import uuid
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 
 from mi_fitness_whooping.ingestion.xiaomi_records import (
@@ -45,16 +52,59 @@ CONFLICT_POLICY_VERSION = "physiology-v1"
 TARGET_NAME = "health-rebuild.sqlite"
 DEEP_INTERVAL_HOURS = 24
 SELECTION_POLICIES = ("ru_compat", "cn_review", "unresolved_exclude")
-EQUIVALENCE_RULES = ("candidate-v1", "strict-v1")
-# strict-v1: the only column whose CN/RU difference was observed alone and is
-# documented as an upload flag. Every other column difference is a conflict.
+EQUIVALENCE_RULES = ("candidate-v1", "strict-v1", "strict-v2")
+# Proven upload/service flags: the only column whose CN/RU difference was
+# observed alone. Every other column difference is a conflict (strict rules).
 STRICT_IGNORABLE_COLUMNS = frozenset({"isUploaded"})
+# Constant SQL literals only: NULL, numbers, strings, blobs. Expressions such as
+# CURRENT_TIMESTAMP are not constant and cannot define an equivalent value.
+_DEFAULT_LITERAL = re.compile(
+    r"(?is)^\s*(?:null|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|'(?:[^']|'')*'|x'(?:[0-9a-f]{2})*')\s*$")
+UNRESOLVED_DEFAULT = object()
+
+
+def declared_default(column: dict) -> object:
+    """Value SQLite stores for this column when a row omits it, or UNRESOLVED_DEFAULT.
+
+    Derived from the column's own declaration (PRAGMA table_info): a constant
+    DEFAULT literal is evaluated by SQLite with the column's type affinity; a
+    nullable column without DEFAULT stores NULL by SQLite's definition. A NOT
+    NULL column without DEFAULT, or a non-constant DEFAULT, has no reliable
+    value and stays a difference.
+    """
+    default = column.get("default")
+    if default is None:
+        return UNRESOLVED_DEFAULT if column.get("notnull") else None
+    if not _DEFAULT_LITERAL.match(str(default)):
+        return UNRESOLVED_DEFAULT
+    try:
+        with closing(sqlite3.connect(":memory:")) as memory:
+            # PRAGMA table_info drops the parentheses of an expression default.
+            memory.execute(f'CREATE TABLE t(c {column.get("type") or ""} DEFAULT ({default}))')
+            memory.execute("INSERT INTO t DEFAULT VALUES")
+            return memory.execute("SELECT c FROM t").fetchone()[0]
+    except sqlite3.Error:
+        return UNRESOLVED_DEFAULT
 
 
 def policy_version(selection_policy: str, equivalence: str) -> str:
     """Conflict policy version; candidate-v1 keeps the candidate's exact string."""
     rule = "" if equivalence == "candidate-v1" else f"+{equivalence}"
     return f"{CONFLICT_POLICY_VERSION}{rule}:{selection_policy}"
+
+
+# Accepted target contract for CN/RU value conflicts (both alternatives kept,
+# neither selected). Other policies stay available for reproducing old checks.
+TARGET_SELECTION_POLICY = "unresolved_exclude"
+
+
+class SourceIncompleteError(RuntimeError):
+    """A source database recorded in the published history is absent now."""
+
+    def __init__(self, missing: list[dict[str, str]]):
+        super().__init__("expected source database(s) absent: " +
+                         ", ".join(item["relative_path"] for item in missing))
+        self.missing = missing
 
 
 def require_contract(selection_policy: str | None, equivalence: str | None) -> None:
@@ -312,6 +362,40 @@ def _strict_key(db: sqlite3.Connection, physical_id: str, row_json: str) -> byte
     return content_hash(row, value_json)
 
 
+def _schema_columns(db: sqlite3.Connection, source_db_id: int, table: str) -> dict[str, dict]:
+    row = db.execute("SELECT columns_json FROM source_table_catalog WHERE source_db_id=? AND table_name=?",
+                     (source_db_id, table)).fetchone()
+    return {column["name"]: column for column in json.loads(row[0])} if row else {}
+
+
+def _strict_v2_keys(db: sqlite3.Connection, active: list) -> tuple[dict[str, bytes], list[str]]:
+    """Comparison keys per physical row and the columns equated through a declared default.
+
+    A column present in one schema version but absent from another is filled,
+    for the row that lacks it, with the declared default of that column in the
+    schemas that have it (only if they all declare the same resolvable value).
+    Otherwise the absent column gets a row-unique marker, so the rows differ.
+    """
+    rows = {r[0]: _stored_row(db, r[0], r[11]) for r in active}
+    schemas = {r[0]: _schema_columns(db, r[2], r[3]) for r in active}
+    union = set().union(*(row.keys() for row in rows.values()))
+    keys, filled = {}, set()
+    for physical_id, row in rows.items():
+        normalized = dict(row)
+        for name in union - row.keys():
+            defaults = [declared_default(schemas[other][name]) for other in rows
+                        if name in rows[other] and name in schemas[other]]
+            resolved = (defaults and all(d is not UNRESOLVED_DEFAULT for d in defaults)
+                        and len({repr(d) for d in defaults}) == 1)
+            normalized[name] = defaults[0] if resolved else {"__unresolved_default__": physical_id}
+            if resolved:
+                filled.add(name)
+        normalized = {k: v for k, v in normalized.items() if k not in STRICT_IGNORABLE_COLUMNS}
+        _, _, value_json = canonicalize_record(normalized)
+        keys[physical_id] = content_hash(normalized, value_json)
+    return keys, sorted(filled)
+
+
 def _rebuild_canonical(db: sqlite3.Connection, generation: str, now: str,
                        run_id: str, counters: Counter, selection_policy: str,
                        equivalence: str, initial_build: bool = False) -> None:
@@ -351,13 +435,21 @@ def _rebuild_canonical(db: sqlite3.Connection, generation: str, now: str,
         candidate = min(active, key=priority) if active else None
         hashes = {r[7].hex() for r in active}
         physical_conflict = len(hashes) > 1
+        schema_columns: list[str] = []
         if equivalence == "strict-v1" and physical_conflict:
             semantic_conflict = len({_strict_key(db, r[0], r[11]) for r in active}) > 1
+        elif equivalence == "strict-v2" and physical_conflict:
+            v2_keys, schema_columns = _strict_v2_keys(db, active)
+            semantic_conflict = len(set(v2_keys.values())) > 1
+            # Equal only after filling declared defaults: a schema-version difference.
+            if semantic_conflict or len({_strict_key(db, r[0], r[11]) for r in active}) == 1:
+                schema_columns = []
         else:
             semantic_conflict = len({(r[10], r[5], r[6]) for r in active}) > 1
         chosen = None if semantic_conflict and selection_policy == "unresolved_exclude" else candidate
         state = ("UNRESOLVED_EXCLUDED" if semantic_conflict and chosen is None else
                  "UNRESOLVED_SELECTED_FOR_COMPATIBILITY" if semantic_conflict else
+                 "EQUIVALENT_SCHEMA_DEFAULT_DIFF" if schema_columns else
                  "EQUIVALENT_PHYSIOLOGY_METADATA_DIFF" if physical_conflict else
                  "DUPLICATE_EQUAL" if len(active) > 1 else "NONE")
         if physical_conflict:
@@ -368,11 +460,13 @@ def _rebuild_canonical(db: sqlite3.Connection, generation: str, now: str,
                        (logical_id, logical_id, rows[0][3], json_dumps([r[0] for r in active]),
                         json_dumps([r[7].hex() for r in active]), chosen[0] if chosen else "",
                         "UNRESOLVED_NO_ROW_VERSION_EXCLUDED" if chosen is None else
+                        "EQUIVALENT_SCHEMA_DEFAULTS:" + ",".join(schema_columns) if schema_columns else
                         f"EQUIVALENT_VALUE_{selection_policy.upper()}_REPRESENTATIVE" if not semantic_conflict else
                         "RU_PRIORITY_FOR_COMPATIBILITY_UNVERIFIED" if selection_policy == "ru_compat" else
                         "CN_PRIORITY_FOR_REVIEW_UNVERIFIED",
                         state, now, version))
-            counters["conflicts_unresolved" if semantic_conflict else "metadata_conflicts"] += 1
+            counters["conflicts_unresolved" if semantic_conflict else
+                     "schema_default_conflicts" if schema_columns else "metadata_conflicts"] += 1
         elif len(active) > 1:
             counters["duplicates_equal"] += 1
         for r in rows:
@@ -466,7 +560,7 @@ def _rebuild_canonical(db: sqlite3.Connection, generation: str, now: str,
 
 def reconcile(source_root: Path, output_dir: Path, *, rebuild: bool = False,
               full: bool = False, deep_hours: int = DEEP_INTERVAL_HOURS,
-              selection_policy: str | None = None, equivalence: str | None = None,
+              selection_policy: str = TARGET_SELECTION_POLICY, equivalence: str | None = None,
               target_name: str = TARGET_NAME) -> dict:
     require_contract(selection_policy, equivalence)
     version = policy_version(selection_policy, equivalence)
@@ -487,6 +581,18 @@ def reconcile(source_root: Path, output_dir: Path, *, rebuild: bool = False,
     keys = [_source_key(source_root, p) for p in candidates]
     if len(keys) != len(set(keys)):
         raise RuntimeError("ambiguous duplicate source database identity")
+    if target.exists():
+        # Expected databases come from the published history, never from the
+        # possibly incomplete current tree. A first build has no expectation.
+        probe = sqlite3.connect("file:" + str(target) + "?mode=ro", uri=True)
+        try:
+            expected = probe.execute("SELECT source_key, relative_path FROM source_database_identities").fetchall()
+        finally:
+            probe.close()
+        missing = [{"source_key": key, "relative_path": path}
+                   for key, path in sorted(expected) if key not in set(keys)]
+        if missing:
+            raise SourceIncompleteError(missing)
     quick = {key: database_fingerprint(path)[0] for key, path in zip(keys, candidates)}
     quick_digest = hashlib.sha256(json_dumps(quick).encode()).hexdigest()
     if not rebuild and not full and target.exists():
@@ -503,7 +609,8 @@ def reconcile(source_root: Path, output_dir: Path, *, rebuild: bool = False,
         due = last is None or dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(last) >= dt.timedelta(hours=deep_hours)
         if (previous == quick_digest and old_policy == selection_policy and
                 old_policy_version == version and not due):
-            return {"status": "NO NEW SOURCE DATA", "duration_seconds": round(time.monotonic()-start, 3)}
+            return {"status": "NO NEW SOURCE DATA", "conflict_policy_version": version,
+                    "duration_seconds": round(time.monotonic()-start, 3)}
 
     fd, temporary_name = tempfile.mkstemp(prefix=".health-rebuild-next-", suffix=".sqlite", dir=output_dir)
     os.close(fd)
@@ -561,7 +668,8 @@ def reconcile(source_root: Path, output_dir: Path, *, rebuild: bool = False,
             if prior_sources - current_sources:
                 # A temporarily incomplete SynoSync tree must never erase a
                 # whole DB's history. Require an explicit, separate policy.
-                raise SourceSnapshotBusyError("previous source database absent; refusing mass deletion")
+                raise SourceIncompleteError([{"source_key": key, "relative_path": key}
+                                             for key in sorted(str(s) for s in prior_sources - current_sources)])
             _rebuild_canonical(db, generation, now, run_id, counters, selection_policy,
                                equivalence, initial_build=rebuild or not target.exists())
             manifest_digest = hashlib.sha256(json_dumps(manifest).encode()).hexdigest()
@@ -590,7 +698,7 @@ def reconcile(source_root: Path, output_dir: Path, *, rebuild: bool = False,
         finally:
             db.close()
         os.replace(working, target)
-        return {"status": "SUCCESS", "generation": generation,
+        return {"status": "SUCCESS", "generation": generation, "conflict_policy_version": version,
                 "duration_seconds": round(time.monotonic()-start, 3),
                 "target": str(target), "counts": dict(counters)}
     finally:
@@ -607,10 +715,10 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument("--rebuild-from-source", action="store_true")
     modes.add_argument("--full-reconcile", action="store_true")
     parser.add_argument("--deep-interval-hours", type=int, default=DEEP_INTERVAL_HOURS)
-    parser.add_argument("--selection-policy", choices=SELECTION_POLICIES, required=True,
-                        help="CN/RU selection policy; no default (reviewed candidate policy: unresolved_exclude)")
+    parser.add_argument("--selection-policy", choices=SELECTION_POLICIES, default=TARGET_SELECTION_POLICY,
+                        help="CN/RU selection policy (accepted target contract: unresolved_exclude)")
     parser.add_argument("--equivalence", choices=EQUIVALENCE_RULES, required=True,
-                        help="CN/RU equivalence rule; no default (see module docstring)")
+                        help="CN/RU equivalence rule; required, no default (see module docstring)")
     args = parser.parse_args(argv)
     if args.deep_interval_hours < 0:
         parser.error("--deep-interval-hours must be nonnegative")
@@ -621,8 +729,15 @@ def main(argv: list[str] | None = None) -> int:
                            target_name=args.target_name)
         print(json.dumps(result, sort_keys=True))
         return 0
+    except SourceIncompleteError as exc:
+        # Nothing is published: an absent database cannot be told apart from
+        # an incomplete sync, so its history must not be marked missing.
+        print(json.dumps({"status": "SOURCE_INCOMPLETE", "missing_databases": exc.missing,
+                          "detail": str(exc)}, sort_keys=True))
+        return 3
     except SourceSnapshotBusyError as exc:
-        print(json.dumps({"status": "SKIPPED", "reason": type(exc).__name__}))
+        # Transient: the source changed while it was being copied; retry later.
+        print(json.dumps({"status": "SKIPPED", "reason": "SOURCE_BUSY", "detail": str(exc)}, sort_keys=True))
         return 0
     except Exception as exc:
         print(json.dumps({"status": "FAILED", "error": type(exc).__name__, "detail": str(exc)}), file=sys.stderr)
