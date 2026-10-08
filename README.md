@@ -37,6 +37,15 @@ Omit `--day` to show the latest selected night, or the latest selected date if t
 It rejects the same file as `--source` and `--db`. The target runner owns one
 analytics lock and transaction for features, metrics, selections and state.
 
+Rebuild canonical source history from a Mi Fitness export into a separate directory (never the installed ETL output). Both contract choices are required:
+
+```sh
+./mi-fitness-whooping reconcile --source /path/to/export --output /path/to/rebuild \
+  --selection-policy unresolved_exclude --equivalence strict-v1 --rebuild-from-source
+```
+
+The result `health-rebuild.sqlite` can be used as `run --source`; its change log lets incremental analytics follow corrections, deletions and tombstones.
+
 Read a date or inclusive history without running calculations:
 
 ```sh

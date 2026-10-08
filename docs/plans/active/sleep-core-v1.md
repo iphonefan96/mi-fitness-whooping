@@ -57,6 +57,10 @@ Traced the ordinary `./mi-fitness-whooping run` end to end: launcher → `basic.
 
 The rebuild candidate already provides corrections, CN/RU alternatives with provenance, deletion/tombstone tracking and an idempotent, diffable rebuild; it was not re-implemented. The barrier gap was downstream: analytics could not see candidate corrections of daily aggregates or deletions. Fixed by consuming the candidate's change log in the target runner. Remaining acceptance actions are listed in `BACKLOG.md`.
 
+## Current stage: target-owned ingestion boundary (2026-10-08, `agent/claude-ingestion`)
+
+Ported the verified reconciliation candidate into `mi_fitness_whooping.ingestion` and exposed it as `mi-fitness-whooping reconcile`, so the target import → canonical history → analytics → `day`/`history` path runs without `Legacy/` code. Selection policy and CN/RU equivalence rule are explicit inputs with no defaults. Parity with the candidate is proven by its own test suite, synthetic scenario digests and the local-export digest. Open: the two contract decisions and the NAS/disk checks in `BACKLOG.md`; the installed ETL is not switched.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.

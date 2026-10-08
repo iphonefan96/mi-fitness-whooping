@@ -114,6 +114,23 @@ class ExplicitContractTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
 
+class NoLegacyRuntimeTests(unittest.TestCase):
+    def test_reconcile_runs_with_only_src_on_the_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sources = Sources(Path(temp))
+            self.addCleanup(sources.close)
+            sources.put("ru", "heart_rate", T0, {"bpm": 60})
+            code = ("import sys; from pathlib import Path; "
+                    "from mi_fitness_whooping.ingestion.reconcile import reconcile; "
+                    "r = reconcile(Path(sys.argv[1]), Path(sys.argv[2]), rebuild=True, "
+                    "selection_policy='unresolved_exclude', equivalence='strict-v1'); "
+                    "assert r['status'] == 'SUCCESS', r; "
+                    "assert not {'mi_fitness_etl', 'mi_fitness_reconcile', 'analytics'} & set(sys.modules)")
+            subprocess.run([sys.executable, "-B", "-c", code, str(sources.root), str(Path(temp) / "out")],
+                           cwd=temp, env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+                           check=True, capture_output=True, text=True)
+
+
 class EquivalenceInventoryTests(unittest.TestCase):
     """A CN/RU difference outside value/time/date is hidden by candidate-v1 only."""
 
