@@ -36,6 +36,8 @@ Selected by the user after the Recovery/vitals stage. Existing calculations only
 - **Vitals monitoring** moves into the Recovery/vitals component: `anomaly.{rhr,spo2,respiratory}`, `health_signal.physiological_watch` and `anomaly.rhr_cusum`. It receives a typed personal band per signal instead of foundation `MetricDraft`s; the adapter maps the series `band_mean` result to that band. This removes the private monitoring/foundation-draft coupling.
 - **Shared domain types:** `FeatureLineage` and the calculated `MetricResult` move to `domain/metrics.py`; result projection to the target writer becomes one shared integration function.
 - **Stays in `baseline`:** sleep duration/stage/efficiency metrics and `sleep.regularity` (sleep family, not in this stage), source, features, feature store, runner. No Activity component: steps and vendor stress keep their existing trends through the series component.
+**Result:** implemented in `domain|analytics|integration/series`, `analytics/recovery_vitals/monitoring.py`, `domain/metrics.py` and `integration/metric_results.py`; `baseline/monitoring.py` and the foundation baselines/trends are removed. All acceptance checks below pass with no stored-row difference. Remaining analytics in `baseline` are the sleep duration/stage/efficiency metrics and `sleep.regularity`.
+
 - **Acceptance:** existing full-table Legacy differential scenarios unchanged; randomized synthetic characterization of series and monitoring against Legacy `baselines`, `trends`, `calculate_monitoring_day` and `calculate_cusum_series`, including CUSUM state carry-over and stale/calibrating bands; import guards for every pure module; a disposable real-data copy comparison.
 
 ## Next necessary boundary

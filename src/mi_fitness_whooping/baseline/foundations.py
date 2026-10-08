@@ -9,12 +9,13 @@ from datetime import date, timedelta
 from typing import Any
 
 from mi_fitness_whooping.analytics.recovery_vitals import core as vitals
+from mi_fitness_whooping.analytics.series import core as series_core
 from mi_fitness_whooping.domain.metrics import MetricResult
+from mi_fitness_whooping.domain.series.contracts import SeriesHistory
 from mi_fitness_whooping.integration.recovery_vitals.adapter import vitals_daily, vitals_night
 
 
 VITALS_COMMIT = "fb3a837a017567b0fbc3c0c2b5666f8db4acad21"
-PULSE_COMMIT = "1f8975cfc8298b67482a7e37dba576b9ea8b62db"
 FOUNDATION_ALGORITHM_VERSION = "foundation-2"
 
 
@@ -66,25 +67,17 @@ def _valid_number(value: object, lo: float | None = None, hi: float | None = Non
     return num
 
 
-def _vitals_draft(result: MetricResult, records: dict[tuple[str, str], FeatureRecord]) -> MetricDraft:
-    return MetricDraft(result.name, result.day, result.value, result.unit, result.status,
-                       result.algorithm_id, result.algorithm_version, result.source_type,
-                       result.upstream_project, result.upstream_commit,
-                       tuple(records[ref.kind, ref.fingerprint] for ref in result.lineage),
-                       result.metadata, result.confidence)
-
-
-def direct_metrics(day: date, night: FeatureRecord | None, daily: FeatureRecord | None) -> list[MetricDraft]:
+def direct_metrics(day: date, night: FeatureRecord | None,
+                   daily: FeatureRecord | None) -> list[MetricDraft | MetricResult]:
     # Vitals are calculated by the Recovery/vitals component; this keeps the
     # existing persistence order around the sleep duration metrics.
-    records = {(f.kind, f.fingerprint): f for f in (night, daily) if f is not None}
     vitals_n = vitals_night(night) if night else None
     vitals_d = vitals_daily(daily) if daily else None
-    results: list[MetricDraft] = []
+    results: list[MetricDraft | MetricResult] = []
     if night:
         v = night.values
         inp = (night,)
-        results.append(_vitals_draft(vitals.night_heart_rate(day, vitals_n), records))
+        results.append(vitals.night_heart_rate(day, vitals_n))
         tib = _valid_number(v.get("time_in_bed_min"), 0, 1440)
         complete = v.get("stage_coverage") == "COMPLETE" and "SENSOR_GAP" not in night.quality_flags
         tst = _valid_number(v.get("tst_min"), 0, 1440) if complete else None
@@ -122,12 +115,12 @@ def direct_metrics(day: date, night: FeatureRecord | None, daily: FeatureRecord 
                                    "sleep.stage_share_v1", inputs=inp,
                                    metadata={"denominator": denom_name, "numerator": f"{stage}_min"}))
 
-        results.extend(_vitals_draft(r, records) for r in vitals.night_spo2(day, vitals_n))
-        results.append(_vitals_draft(vitals.night_respiratory(day, vitals_n), records))
+        results.extend(vitals.night_spo2(day, vitals_n))
+        results.append(vitals.night_respiratory(day, vitals_n))
 
     vendor = vitals.vendor_daily_rhr(day, vitals_n, vitals_d)
     if vendor is not None:
-        results.append(_vitals_draft(vendor, records))
+        results.append(vendor)
     return results
 
 
@@ -168,145 +161,18 @@ def regularity(day: date, nights: dict[date, FeatureRecord]) -> MetricDraft | No
                    metadata=metadata)
 
 
-SERIES = {
-    "rhr": ("daily", "daily_rhr_bpm", "bpm"),
-    "sleep_tst": ("nightly", "tst_min", "min"),
-    "spo2": ("nightly", "spo2_mean_pct", "%"),
-    "respiratory": ("nightly", "respiratory_rate_bpm", "breaths/min"),
-    "steps": ("daily", "steps", "steps"),
-    "stress_vendor": ("daily", "vendor_stress_median", "vendor_scale"),
-}
-
-
-def _series_at(day: date, key: str, nights: dict[date, FeatureRecord],
-               dailies: dict[date, FeatureRecord]) -> tuple[float | None, FeatureRecord | None]:
-    kind, field, _ = SERIES[key]
-    feature = (nights if kind == "nightly" else dailies).get(day)
-    if feature is None:
-        return None, None
-    value = _valid_number(feature.values.get(field))
-    if key == "spo2" and value is not None and not 0 < value <= 100:
-        value = None
-    if key == "respiratory" and value is not None and not 4 <= value <= 60:
-        value = None
-    if key == "rhr" and value is not None and not 25 <= value <= 240:
-        value = None
-    if key in {"sleep_tst", "steps"} and value is not None and value < 0:
-        value = None
-    return value, feature
-
-
-def _prior_series(day: date, key: str, nights: dict[date, FeatureRecord],
-                  dailies: dict[date, FeatureRecord], days: int = 30) -> list[tuple[date, float, FeatureRecord]]:
-    output = []
-    for offset in range(days, 0, -1):
-        past = day - timedelta(days=offset)
-        value, feature = _series_at(past, key, nights, dailies)
-        if value is not None and feature is not None:
-            output.append((past, value, feature))
-    return output
-
-
-def baselines(day: date, nights: dict[date, FeatureRecord],
-              dailies: dict[date, FeatureRecord]) -> list[MetricDraft]:
-    results = []
-    for key in ("rhr", "sleep_tst", "spo2", "respiratory"):
-        current, current_feature = _series_at(day, key, nights, dailies)
-        if current is None or current_feature is None:
-            continue
-        history = _prior_series(day, key, nights, dailies)
-        recent = bool(history and (day - history[-1][0]).days <= 14)
-        ready = len(history) >= 5 and recent
-        unit = SERIES[key][2]
-        metadata = {"window_calendar_days": 30, "history_count": len(history),
-                    "required_history_count": 5, "last_prior_date": history[-1][0].isoformat() if history else None,
-                    "max_last_observation_age_days": 14, "excludes_current_date": True}
-        inputs = (current_feature, *(f for _, _, f in history))
-        values = [v for _, v, _ in history]
-        if key != "sleep_tst":
-            mean = statistics.mean(values) if ready else None
-            sd = statistics.pstdev(values) if ready else None
-            floor = {"rhr": 3.0, "spo2": 1.5, "respiratory": .8}[key]
-            half_width = max(1.65 * sd, floor) if sd is not None else None
-            extra = {**metadata, "sd": sd, "half_width": half_width,
-                     "lower": max(90, mean - half_width) if key == "spo2" and mean is not None else
-                              (mean - half_width if mean is not None else None),
-                     "upper": None if key == "spo2" else (mean + half_width if mean is not None else None),
-                     "method": "prior_30_calendar_day_population_mean_sd_pulse_band"}
-            results.append(_metric(f"baseline.{key}.band_mean", day, mean, unit,
-                                   ("REDUCED" if key == "respiratory" else "VALID") if ready else "CALIBRATING",
-                                   f"baseline.pulse_{key}_band_v1",
-                                   inputs=inputs, upstream_project="Pulse", upstream_commit=PULSE_COMMIT,
-                                   metadata=extra, confidence="MEDIUM" if ready else "LOW"))
-            delta = current - mean if mean is not None else None
-            results.append(_metric(f"{key}.deviation", day, delta, unit,
-                                   "VALID" if delta is not None and key != "respiratory" else
-                                   ("REDUCED" if delta is not None else "CALIBRATING"),
-                                   f"deviation.{key}_delta_v1", inputs=inputs,
-                                   metadata={"reference_metric": f"baseline.{key}.band_mean", **metadata}))
-        # Standard EWMA level, distinct from the Pulse monitoring band.
-        ewma = None
-        if ready:
-            alpha = 2 / 31
-            ewma = values[0]
-            for value in values[1:]:
-                ewma = alpha * value + (1 - alpha) * ewma
-        results.append(_metric(f"baseline.{key}.ewma", day, ewma, unit,
-                               ("REDUCED" if key == "respiratory" else "VALID") if ewma is not None else "CALIBRATING",
-                               f"baseline.ewma30_{key}_v1", inputs=inputs,
-                               metadata={**metadata, "alpha": 2 / 31, "seed": "oldest_observation",
-                                         "method": "EWMA_prior_30_calendar_days"}))
-    return results
-
-
-def _theil_sen(dated_values: list[tuple[date, float, FeatureRecord]]) -> float:
-    slopes = []
-    for i in range(len(dated_values) - 1):
-        for j in range(i + 1, len(dated_values)):
-            x = (dated_values[j][0] - dated_values[i][0]).days
-            if x > 0:
-                slopes.append((dated_values[j][1] - dated_values[i][1]) / x)
-    return statistics.median(slopes) * 7
-
-
-def trends(day: date, nights: dict[date, FeatureRecord],
-           dailies: dict[date, FeatureRecord]) -> list[MetricDraft]:
-    results = []
-    for key, (_, _, unit) in SERIES.items():
-        current, _ = _series_at(day, key, nights, dailies)
-        if current is None:
-            continue
-        for window, min_n in ((14, 7), (30, 14), (90, 30)):
-            dated = []
-            for offset in range(window - 1, -1, -1):
-                candidate_day = day - timedelta(days=offset)
-                value, feature = _series_at(candidate_day, key, nights, dailies)
-                if value is not None and feature is not None:
-                    dated.append((candidate_day, value, feature))
-            enough = len(dated) >= min_n and len(dated) / window >= .6
-            # Do not describe a long unmeasured gap as continuous trend.
-            max_gap = max(((b[0] - a[0]).days for a, b in zip(dated, dated[1:])), default=0)
-            enough = enough and max_gap <= 7
-            slope = _theil_sen(dated) if enough else None
-            results.append(_metric(f"trend.{key}.{window}d.theilsen", day, slope, f"{unit}/week",
-                                   ("REDUCED" if key in {"respiratory", "stress_vendor"} else "VALID")
-                                   if slope is not None else "CALIBRATING",
-                                   "trend.vitals_theilsen_calendar_v1", inputs=tuple(f for _, _, f in dated),
-                                   upstream_project="Vitals", upstream_commit=VITALS_COMMIT,
-                                   metadata={"window_calendar_days": window, "history_count": len(dated),
-                                             "required_history_count": min_n, "required_coverage": .6,
-                                             "max_gap_days": max_gap, "includes_current_date": True,
-                                             "x_axis": "actual_calendar_days"},
-                                   confidence="MEDIUM" if slope is not None else "LOW"))
-    return results
-
-
 def calculate_day(day: date, nights: dict[date, FeatureRecord],
-                  dailies: dict[date, FeatureRecord]) -> list[MetricDraft]:
+                  dailies: dict[date, FeatureRecord],
+                  series: SeriesHistory) -> list[MetricDraft | MetricResult]:
+    """Foundation metrics for one date in the existing persistence order.
+
+    Sleep duration metrics and regularity are drafts here; vitals, baselines,
+    deviations and trends come from their components as `MetricResult`s.
+    """
     result = direct_metrics(day, nights.get(day), dailies.get(day))
     reg = regularity(day, nights)
     if reg is not None:
         result.append(reg)
-    result.extend(baselines(day, nights, dailies))
-    result.extend(trends(day, nights, dailies))
+    result.extend(series_core.baselines(day, series))
+    result.extend(series_core.trends(day, series))
     return result

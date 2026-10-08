@@ -1,4 +1,10 @@
-"""Non-diagnostic personal health bands, RHR CUSUM and corroborated watch."""
+"""Non-diagnostic personal vital bands, RHR CUSUM and corroborated watch.
+
+The formulas, gates, statuses and metadata are the existing monitoring
+behavior (Legacy `algorithms.monitoring`), moved here unchanged. Bands arrive
+as typed `VitalsBand` values instead of foundation drafts. This module has no
+SQLite, CLI, clock, profile or Legacy dependency.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +12,10 @@ import math
 import statistics
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Mapping
 
-from mi_fitness_whooping.baseline.foundations import FeatureRecord, MetricDraft
+from mi_fitness_whooping.domain.metrics import FeatureLineage, MetricResult
+from mi_fitness_whooping.domain.recovery_vitals.contracts import VitalsBand, VitalsNight
 
 
 MONITORING_ALGORITHM_VERSION = "monitoring-2"
@@ -76,29 +84,27 @@ def evaluate_band(inp: HealthBandInput) -> HealthBandResult:
 
 
 def _draft(name: str, day: date, value: float | None, status: str, algorithm_id: str,
-           inputs: tuple[FeatureRecord, ...], metadata: dict, *, upstream: str,
-           commit: str, confidence: str = "MEDIUM") -> MetricDraft:
-    return MetricDraft(name, day, value, "event_flag", status, algorithm_id,
-                       MONITORING_ALGORITHM_VERSION, "OUR_DERIVED", upstream,
-                       commit, inputs, metadata, confidence)
+           lineage: tuple[FeatureLineage, ...], metadata: dict, *, upstream: str,
+           commit: str, confidence: str = "MEDIUM") -> MetricResult:
+    return MetricResult(name, day, value, "event_flag", status, algorithm_id,
+                        MONITORING_ALGORITHM_VERSION, lineage, metadata, "OUR_DERIVED",
+                        upstream, commit, confidence)
 
 
-def _current(night: FeatureRecord, signal: str) -> float | None:
+def _current(night: VitalsNight, signal: str) -> float | None:
     fields = {"rhr": ("rhr_bpm", 25, 240),
               "spo2": ("spo2_mean_pct", .001, 100),
               "respiratory": ("respiratory_rate_bpm", 4, 60)}
     field, lo, hi = fields[signal]
-    return _valid(night.values.get(field), lo, hi)
+    return _valid(getattr(night, field), lo, hi)
 
 
-def _band_input(day: date, night: FeatureRecord, signal: str,
-                baseline: MetricDraft | None) -> HealthBandInput:
-    m = baseline.metadata if baseline else {}
-    return HealthBandInput(signal, day, _current(night, signal),
-                           baseline.value if baseline and baseline.status in {"VALID", "REDUCED"} else None,
-                           m.get("sd"), m.get("lower"), m.get("upper"),
-                           m.get("history_count", 0),
-                           date.fromisoformat(m["last_prior_date"]) if m.get("last_prior_date") else None)
+def _band_input(day: date, night: VitalsNight, signal: str,
+                band: VitalsBand | None) -> HealthBandInput:
+    if band is None:
+        return HealthBandInput(signal, day, _current(night, signal), None, None, None, None, 0, None)
+    return HealthBandInput(signal, day, _current(night, signal), band.mean, band.sd,
+                           band.lower, band.upper, band.history_count, band.last_prior_date)
 
 
 def _vitals_watch(inp: IllnessWatchInput) -> tuple[list[str], dict]:
@@ -131,24 +137,24 @@ def _vitals_watch(inp: IllnessWatchInput) -> tuple[list[str], dict]:
     return drivers, explanations
 
 
-def calculate_monitoring_day(day: date, nights: dict[date, FeatureRecord],
-                             foundation_drafts: list[MetricDraft]) -> list[MetricDraft]:
+def calculate_monitoring_day(day: date, nights: Mapping[date, VitalsNight],
+                             bands: Mapping[str, VitalsBand | None]) -> list[MetricResult]:
+    """Per-signal band anomalies and the two-signal watch; empty without a night."""
     night = nights.get(day)
     if night is None:
         return []
-    by_name = {m.name: m for m in foundation_drafts}
-    results: list[MetricDraft] = []
+    results: list[MetricResult] = []
     band_inputs: dict[str, HealthBandInput] = {}
     watch_current: dict[str, float | None] = {}
     watch_baselines: dict[str, tuple[float, float] | None] = {}
-    watch_inputs: list[FeatureRecord] = [night]
+    watch_lineage: list[FeatureLineage] = [night.lineage]
     for signal in SIGNALS:
-        baseline = by_name.get(f"baseline.{signal}.band_mean")
-        inp = _band_input(day, night, signal, baseline)
+        band = bands.get(signal)
+        inp = _band_input(day, night, signal, band)
         band_inputs[signal] = inp
         outcome = evaluate_band(inp)
-        if baseline:
-            watch_inputs.extend(baseline.inputs)
+        if band is not None:
+            watch_lineage.extend(band.lineage)
         value = float(outcome.concerning) if outcome.concerning is not None else None
         status = ("REDUCED" if signal == "respiratory" else "VALID") if value is not None else (
             "INSUFFICIENT_DATA" if outcome.state == "NO_DATA" else "CALIBRATING")
@@ -165,7 +171,7 @@ def calculate_monitoring_day(day: date, nights: dict[date, FeatureRecord],
                     "source_quality": "vendor_aggregate" if signal == "respiratory" else "measured_or_vendor_daily"}
         results.append(_draft(f"anomaly.{signal}", day, value, status,
                               f"anomaly.pulse_{signal}_band_v1",
-                              tuple({f.fingerprint: f for f in (night, *(baseline.inputs if baseline else ()))}.values()),
+                              tuple({f.fingerprint: f for f in (night.lineage, *(band.lineage if band else ()))}.values()),
                               metadata, upstream="Pulse", commit=PULSE_COMMIT,
                               confidence="LOW" if signal == "respiratory" else "MEDIUM"))
         ready = outcome.concerning is not None
@@ -187,14 +193,14 @@ def calculate_monitoring_day(day: date, nights: dict[date, FeatureRecord],
                       "diagnosis": False}
     results.append(_draft("health_signal.physiological_watch", day, watch_value,
                           watch_status, "health_signal.vitals_two_signal_watch_v1",
-                          tuple({f.fingerprint: f for f in watch_inputs}.values()), watch_metadata,
+                          tuple({f.fingerprint: f for f in watch_lineage}.values()), watch_metadata,
                           upstream="Vitals", commit=VITALS_COMMIT, confidence="LOW"))
     return results
 
 
-def calculate_cusum_series(nights: dict[date, FeatureRecord]) -> dict[date, MetricDraft]:
+def calculate_cusum_series(nights: Mapping[date, VitalsNight]) -> dict[date, MetricResult]:
     """OpenStrap one-sided RHR CUSUM, evaluated chronologically on main nights."""
-    out: dict[date, MetricDraft] = {}
+    out: dict[date, MetricResult] = {}
     accumulator = 0.0
     yellow_run = normal_run = 0
     last_scored: date | None = None
@@ -268,7 +274,7 @@ def calculate_cusum_series(nights: dict[date, FeatureRecord]) -> dict[date, Metr
                     "last_prior_date": prior[-1][0].isoformat() if prior else None,
                     "state_token": token,
                     "non_diagnostic": True}
-        inputs = tuple({f.fingerprint: f for f in (night, *(f for _, f, _ in prior))}.values())
+        inputs = tuple({f.fingerprint: f for f in (night.lineage, *(f.lineage for _, f, _ in prior))}.values())
         out[day] = _draft("anomaly.rhr_cusum", day, value, status,
                           "anomaly.openstrap_rhr_cusum_v1", inputs, metadata,
                           upstream="OpenStrap", commit=OPENSTRAP_COMMIT,
