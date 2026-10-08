@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-10-07, installed-job compatibility check on top of accepted base `a9e7f9955a7cf03ce1235559e27106ede8205a8e`. The installed macOS ETL and LaunchAgent were not changed.
+Last verified: 2026-10-08 on `agent/claude-target-run` after the analytics component extraction (not yet independently reviewed; accepted base `444f1799406e5913bb2aa421fd55217ba7c00ab8`). The installed macOS ETL and LaunchAgent were not changed.
 
 ## What runs locally
 

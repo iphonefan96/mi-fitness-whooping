@@ -1,6 +1,6 @@
 # Active plan: usable analytics baseline
 
-Updated: 2026-10-07 on `feature/sleep-core-v1`. This plan records the local target-runtime integration after `a17250615ac1c09997f978765bffd819656da1c1`; it does not prescribe a new metric or a production scheduler switch. The detailed behavior contract for the three migrated Sleep metrics remains `docs/features/sleep-core-v1.md`.
+Updated: 2026-10-08 on `agent/claude-target-run` (component stages below); earlier sections from 2026-10-07 on `feature/sleep-core-v1`. This plan records the local target-runtime integration after `a17250615ac1c09997f978765bffd819656da1c1`; it does not prescribe a new metric or a production scheduler switch. The detailed behavior contract for the three migrated Sleep metrics remains `docs/features/sleep-core-v1.md`.
 
 ## Goal and current result
 
@@ -52,6 +52,8 @@ The last calculations still in `baseline.foundations` are the existing sleep sta
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
+
+The analytics component extraction above is complete and needs independent review of its whole commit range before anything builds on it. No further analytics extraction is planned: what remains in `baseline` (source adapter, feature builders, feature store, profile loading, per-date assembly and the runner's lifecycle/change-discovery SQL) is ingestion/orchestration, and moving it is not required for the baseline. Any next product step (scheduling, freshness policy, UI/API) needs a user decision.
 
 The installed-job compatibility check is complete (see `CURRENT_STATE.md`). By the 2026-10-08 decision, the baseline runs analytics manually through the local target command; scheduling is deferred to `BACKLOG.md` and is not a request to add metrics, rebuild ingestion or rewrite the runner again. Existing old-correction limits and optional product work stay in `BACKLOG.md`.
 
