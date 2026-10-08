@@ -61,6 +61,10 @@ The rebuild candidate already provides corrections, CN/RU alternatives with prov
 
 Ported the verified reconciliation candidate into `mi_fitness_whooping.ingestion` and exposed it as `mi-fitness-whooping reconcile`, so the target import → canonical history → analytics → `day`/`history` path runs without `Legacy/` code. Selection policy and CN/RU equivalence rule are explicit inputs with no defaults. Parity with the candidate is proven by its own test suite, synthetic scenario digests and the local-export digest. Open: the two contract decisions and the NAS/disk checks in `BACKLOG.md`; the installed ETL is not switched.
 
+## Current stage: source contract (2026-10-09, `agent/claude-source-contract`)
+
+`unresolved_exclude` accepted; `strict-v2` added (declared-default schema equivalence, `candidate-v1`/`strict-v1` kept for reproducibility); a missing expected source database stops reconcile with `SOURCE_INCOMPLETE` before any write. Verified on synthetic cases and a fresh NAS snapshot (`CURRENT_STATE.md`). The skeleton is handed to independent review; no new BACKLOG item is started.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.

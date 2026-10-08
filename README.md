@@ -37,14 +37,14 @@ Omit `--day` to show the latest selected night, or the latest selected date if t
 It rejects the same file as `--source` and `--db`. The target runner owns one
 analytics lock and transaction for features, metrics, selections and state.
 
-Rebuild canonical source history from a Mi Fitness export into a separate directory (never the installed ETL output). Both contract choices are required:
+Rebuild canonical source history from a Mi Fitness export into a separate directory (never the installed ETL output). The CN/RU selection policy defaults to the accepted `unresolved_exclude`; the equivalence rule must always be given (`strict-v2` for new histories; `candidate-v1`/`strict-v1` reproduce earlier checks):
 
 ```sh
 ./mi-fitness-whooping reconcile --source /path/to/export --output /path/to/rebuild \
-  --selection-policy unresolved_exclude --equivalence strict-v1 --rebuild-from-source
+  --equivalence strict-v2 --rebuild-from-source
 ```
 
-The result `health-rebuild.sqlite` can be used as `run --source`; its change log lets incremental analytics follow corrections, deletions and tombstones.
+Every result reports `conflict_policy_version`. If a source database recorded in the published history is missing from the export, the command prints `SOURCE_INCOMPLETE` with the missing database, exits with code 3 and leaves the published history unchanged; a source that changes while being copied is `SKIPPED`/`SOURCE_BUSY` (exit 0, retry later). The result `health-rebuild.sqlite` can be used as `run --source`; its change log lets incremental analytics follow corrections, deletions and tombstones.
 
 Read a date or inclusive history without running calculations:
 
