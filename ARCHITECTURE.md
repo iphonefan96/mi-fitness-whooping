@@ -30,7 +30,7 @@ The local launcher places only `src/` on the import path. Target runtime has no 
 
 | Boundary | Implemented owner | Current limits |
 |---|---|---|
-| Ingestion | Installed Legacy ETL | Incremental source overlap; reconciliation candidate not installed. |
+| Ingestion | Installed Legacy ETL | Incremental source overlap; reconciliation candidate (`Legacy/mi_fitness_reconcile.py`) not installed. When the source carries its `normalized_change_log`, the target runner invalidates the logged dates. |
 | Source and profile | `baseline.source`, `baseline.profile` | Read-only health adapter and profile JSON v1. The change guard covers the main file and a non-empty WAL, so WAL-mode copies run; Legacy still rejects them. |
 | Canonical inputs | `baseline.models`, `baseline.normalization`, Sleep domain contracts | Existing source-signal and feature identity; Sleep has narrow typed input. |
 | Features | `baseline.features`, `baseline.feature_store` | Nightly/daily features and active selection in unchanged schema v3. |

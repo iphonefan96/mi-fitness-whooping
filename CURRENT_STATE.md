@@ -20,6 +20,19 @@ The target source guard now fingerprints the files that hold data: the main file
 
 Verified through the launcher (`./mi-fitness-whooping run`, no `PYTHONPATH`) on all three kinds of fresh copies of the external source, against Legacy on a DELETE-mode copy of the same data: equal run summaries and equal feature/result/selection tables on the first run, after a historical RHR correction and after removing a historical main night; every repeat returned `NO NEW ANALYTICS INPUT`. Copies were removed. Synthetic regression tests cover a WAL source, a copy carrying uncheckpointed WAL frames, and a commit that lands mid-run (still `FAILED` with rollback).
 
+## Canonical source history (Step 9.5 barrier, 2026-10-08, `agent/claude-source-history`)
+
+The rebuild mechanism already exists: `Legacy/mi_fitness_reconcile.py` (`2.1.0-candidate`, byte-identical to the original project, which has no Git history; status there `NEEDS_REVIEW`, not installed). It was exercised on a disposable copy of the local Xiaomi export (source groups copied with `copy2` while verified unchanged; the candidate then stages each group and takes a SQLite backup), with the reviewed policy `unresolved_exclude`:
+
+| Property | Evidence |
+|---|---|
+| Correction older than 48 h | `heart_rate_day` avg RHR for a date about five months before the newest measurement: `canonical_update` 1, `physical_updated` 1, one `physical_record_history` row, change log `UPDATE` with old/new date. |
+| CN/RU conflicts | 32 logical records with two `ACTIVE` physical rows each: 15 value conflicts excluded from the canonical layer (both rows `CONFLICT_ALTERNATIVE`, no selection), 17 metadata-only (RU `PRIMARY`, CN `DUPLICATE_EQUIVALENT`); no physical row lost. |
+| Deletion / tombstone | Hard-deleted night → `MISSING` + change log `DELETE`; vendor `deleted=1` night → `TOMBSTONE`, provenance `TOMBSTONE_SOURCE`, change log `DELETE`. |
+| Rebuild diff and idempotence | Two clean rebuilds (≈200 s, ≈1.46 GB each; 740,863 physical / 740,812 canonical rows) have the same timestamp-independent digest; an unchanged fast run returns `NO NEW SOURCE DATA`; a forced deep reconcile (≈213 s) logs zero changes and keeps the digest. |
+
+**Defect found and fixed (target only):** the candidate re-normalizes every row and keeps unchanged rows' import times. A corrected daily aggregate therefore did not advance `daily_summary.updated_at`, and a deleted or tombstoned record left no row, so incremental analytics (Legacy and target) saw none of the three changes above while a fresh run did. The target runner now reads the candidate's `normalized_change_log` (affected/old/new dates of changes detected after the import checkpoint) and includes `detected_at` in the checkpoint; sources without that table behave exactly as before. On the disposable chain each incremental target run then equalled a fresh run row for row (correction: 2 features, 1,146 metrics; deleted night: 1 feature, 638 metrics; tombstone: 1 feature, 672 metrics), every repeat returned `NO NEW ANALYTICS INPUT`, superseded results stay stored (the corrected `rhr.vendor_daily` row supersedes the old one; removed nights keep their rows without an active selection). Legacy's incremental chain kept the stale values, as expected. On the unchanged rebuilt snapshot target and Legacy still match exactly (994 features, 26,150 results).
+
 ## Persistent contracts
 
 The existing `health.sqlite` source schema, analytics SQLite schema v3, profile JSON v1, metric/result identity, active feature/result selection and file locations remain unchanged. Target feature storage and target result storage write the same revisioned tables. Real source exports, health/analytics databases, populated profiles and generated reports stay outside Git. Xiaomi HRV is unavailable; distance remains withheld because its source unit is unverified. SpO₂ is optical oxygen saturation, not a blood test.
@@ -44,6 +57,6 @@ On disposable SQLite backups of the external databases, independent Legacy and t
 - Decision 2026-10-08: the baseline runs analytics manually with `./mi-fitness-whooping run`. Scheduling is deferred to `BACKLOG.md`; the installed ETL/LaunchAgent is unchanged and runs ETL only.
 - Legacy-preserved cleanup gap: a date that loses both nightly and daily features, or loses a night during an algorithm-version rerun, keeps its previous active metric selections.
 - The live WAL source has not been run by target (live databases are out of bounds). If the live `-wal` exists but is empty, its stored Legacy fingerprint differs from target's, so the first target run after Legacy performs one incremental pass instead of `NO NEW ANALYTICS INPUT`.
-- Legacy-compatible incremental discovery uses source-file fingerprint and a 48-hour overlap; arbitrary old source corrections and deletions may need separate reconciliation. The candidate reconciliation ETL is not installed.
+- Legacy-compatible incremental discovery over the installed ETL output still uses the import times and a 48-hour overlap; old corrections and deletions are only detected when the source is the reconciliation candidate's rebuild, which is not installed.
 - Stored freshness is assigned at calculation time. Historical rows can retain an old label on an unchanged rerun; the local `day`/`history` commands report stored freshness and do not replace Legacy's query-time headline policy.
 - The target runner is a behavior-preserving port of the existing baseline, including its POSIX `flock` and schema-v3 assumptions. Optional refinements remain in `BACKLOG.md`.

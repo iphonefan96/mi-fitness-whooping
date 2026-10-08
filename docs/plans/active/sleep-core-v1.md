@@ -53,6 +53,10 @@ The last calculations still in `baseline.foundations` are the existing sleep sta
 
 Traced the ordinary `./mi-fitness-whooping run` end to end: launcher → `basic.run_and_read` → `baseline.runner` (lock, profile v1, source adapter, change discovery, features, feature store) → `baseline.foundations` assembly → Sleep Core, sleep stages, Recovery/vitals, series and monitoring components → `storage.sqlite` writer and active selection → `basic` read. No Legacy module is loaded. The first blocker for running this path on real data was the source guard rejecting every WAL-mode copy (the form all natural copies take). Fixed in `baseline/source.py`; see `CURRENT_STATE.md`. No formula, status, result/feature fingerprint, revision or schema changed.
 
+## Current stage: canonical source history barrier (2026-10-08, `agent/claude-source-history`)
+
+The rebuild candidate already provides corrections, CN/RU alternatives with provenance, deletion/tombstone tracking and an idempotent, diffable rebuild; it was not re-implemented. The barrier gap was downstream: analytics could not see candidate corrections of daily aggregates or deletions. Fixed by consuming the candidate's change log in the target runner. Remaining acceptance actions are listed in `BACKLOG.md`.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
