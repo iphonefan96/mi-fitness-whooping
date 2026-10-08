@@ -40,6 +40,15 @@ Selected by the user after the Recovery/vitals stage. Existing calculations only
 
 - **Acceptance:** existing full-table Legacy differential scenarios unchanged; randomized synthetic characterization of series and monitoring against Legacy `baselines`, `trends`, `calculate_monitoring_day` and `calculate_cusum_series`, including CUSUM state carry-over and stale/calibrating bands; import guards for every pure module; a disposable real-data copy comparison.
 
+## Current stage: sleep stage metrics and regularity (2026-10-08)
+
+The last calculations still in `baseline.foundations` are the existing sleep stage family: `sleep.{time_in_bed,total_sleep_time,awake,light,deep,rem}_min`, `sleep.efficiency_pct`, `sleep.{deep,rem,light,awake}_pct` and `sleep.regularity`. Move them into the Sleep area as separate modules (`domain/sleep/observations.py`, `analytics/sleep/stages.py`) without touching the locked Sleep Core V1 contracts or calculator. Then every calculation returns `MetricResult`; the private `MetricDraft` and its persistence adapter are removed, and `baseline.foundations` keeps only the per-date assembly order and `FeatureRecord`.
+
+**Result:** implemented in `domain/sleep/observations.py`, `analytics/sleep/stages.py` and `integration/sleep/stages_adapter.py`; `MetricDraft` and `baseline/result_adapter.py` are removed. All acceptance checks pass with no stored-row difference. The analytics migration out of `baseline` is complete: what remains there is source, features, feature store, profile, per-date assembly and the runner.
+
+- **Unchanged:** formulas, SENSOR_GAP/stage-coverage/consistency gates, statuses, units, metadata, `foundation-2` version and persistence order.
+- **Acceptance:** existing full-table Legacy differential scenarios unchanged; randomized characterization against Legacy `direct_metrics` (sleep branch) and `regularity`, including incomplete stages, SENSOR_GAP, inconsistent TST/TIB, bedtime wrap-around and short history; import guard.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.

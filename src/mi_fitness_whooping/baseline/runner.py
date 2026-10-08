@@ -10,7 +10,8 @@ from pathlib import Path
 
 from mi_fitness_whooping.baseline import IMPLEMENTATION_VERSION, NORMALIZATION_VERSION
 from mi_fitness_whooping.baseline.source import XiaomiAdapter
-from mi_fitness_whooping.baseline.foundations import FOUNDATION_ALGORITHM_VERSION, calculate_day
+from mi_fitness_whooping.baseline.foundations import (FOUNDATION_ALGORITHM_VERSION, calculate_day,
+                                                     foundation_inputs)
 from mi_fitness_whooping.analytics.sleep.core import ALGORITHM_VERSION as SLEEP_ALGORITHM_VERSION
 from mi_fitness_whooping.analytics.recovery_vitals.core import RECOVERY_ALGORITHM_VERSION
 from mi_fitness_whooping.analytics.recovery_vitals.monitoring import (
@@ -21,13 +22,8 @@ from mi_fitness_whooping.baseline.normalization import canonical_hash, sleep_dat
 from mi_fitness_whooping.baseline.profile import load_profile
 from mi_fitness_whooping.baseline.feature_store import (active_feature_records, connect, delete_active_feature,
                                   get_state, migrate, put_feature, set_state)
-from mi_fitness_whooping.baseline.result_adapter import persistable
 from mi_fitness_whooping.integration.metric_results import to_persistable
-from mi_fitness_whooping.domain.metrics import MetricResult
-from mi_fitness_whooping.integration.recovery_vitals.adapter import (
-    monitoring_bands, recovery_for_day, vitals_night,
-)
-from mi_fitness_whooping.integration.series.adapter import series_history
+from mi_fitness_whooping.integration.recovery_vitals.adapter import monitoring_bands, recovery_for_day
 from mi_fitness_whooping.integration.sleep.run_context import SleepRunContext
 from mi_fitness_whooping.integration.sleep.target_persistence import TargetSleepStore
 from mi_fitness_whooping.orchestration.sleep import run_sleep_day
@@ -38,11 +34,6 @@ from mi_fitness_whooping.storage.sqlite import (
 
 
 SOURCE_POLICY_VERSION = "primary-v1"
-
-
-def _persistable(item):
-    # Remaining sleep foundation metrics are drafts; components return MetricResult.
-    return to_persistable(item) if isinstance(item, MetricResult) else persistable(item)
 
 
 @contextmanager
@@ -190,8 +181,8 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                                 skipped += 1
                     source.assert_unchanged()
                     nights, dailies = active_feature_records(db)
-                    vitals_nights = {d: vitals_night(f) for d, f in nights.items()}
-                    series = series_history(nights, dailies)
+                    foundation = foundation_inputs(nights, dailies)
+                    vitals_nights = foundation.vitals_nights
                     cusum_by_day = calculate_cusum_series(vitals_nights)
                     available_dates = set(nights) | set(dailies)
                     if metric_force_full:
@@ -218,10 +209,10 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                     metrics_skipped = 0
                     today = datetime.now().astimezone().date()
                     for day in sorted(metric_dates):
-                        foundation_drafts = calculate_day(day, nights, dailies, series)
+                        foundation_results = calculate_day(day, foundation)
                         recovery = recovery_for_day(day, vitals_nights, profile)
                         later_drafts = calculate_monitoring_day(day, vitals_nights,
-                                                                monitoring_bands(foundation_drafts))
+                                                                monitoring_bands(foundation_results))
                         if day in cusum_by_day:
                             later_drafts.append(cusum_by_day[day])
                         fresh = "HISTORICAL" if day < today else ("FRESH" if day == today else "STALE")
@@ -234,8 +225,8 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                             input_contract_version="foundation-output-1",
                             quality_gate_version="foundation-gates-1",
                         )
-                        for draft in foundation_drafts:
-                            if repository.persist(session, _persistable(draft), write_context).changed:
+                        for draft in foundation_results:
+                            if repository.persist(session, to_persistable(draft), write_context).changed:
                                 metrics_calculated += 1
                             else:
                                 metrics_skipped += 1
@@ -249,7 +240,7 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                         )
                         metrics_calculated += sum(outcome.changed for outcome in sleep_store.outcomes)
                         metrics_skipped += sum(not outcome.changed for outcome in sleep_store.outcomes)
-                        produced_names = {draft.name for draft in foundation_drafts + later_drafts} | {
+                        produced_names = {draft.name for draft in foundation_results + later_drafts} | {
                             result.metric.value for result in sleep_results
                         } | ({recovery.name} if recovery is not None else set())
                         if recovery is not None:
@@ -258,7 +249,7 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                             else:
                                 metrics_skipped += 1
                         for draft in later_drafts:
-                            if repository.persist(session, _persistable(draft), write_context).changed:
+                            if repository.persist(session, to_persistable(draft), write_context).changed:
                                 metrics_calculated += 1
                             else:
                                 metrics_skipped += 1
