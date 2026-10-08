@@ -49,6 +49,10 @@ The last calculations still in `baseline.foundations` are the existing sleep sta
 - **Unchanged:** formulas, SENSOR_GAP/stage-coverage/consistency gates, statuses, units, metadata, `foundation-2` version and persistence order.
 - **Acceptance:** existing full-table Legacy differential scenarios unchanged; randomized characterization against Legacy `direct_metrics` (sleep branch) and `regularity`, including incomplete stages, SENSOR_GAP, inconsistent TST/TIB, bedtime wrap-around and short history; import guard.
 
+## Current stage: ordinary run on realistic source copies (2026-10-08, `agent/claude-skeleton`)
+
+Traced the ordinary `./mi-fitness-whooping run` end to end: launcher → `basic.run_and_read` → `baseline.runner` (lock, profile v1, source adapter, change discovery, features, feature store) → `baseline.foundations` assembly → Sleep Core, sleep stages, Recovery/vitals, series and monitoring components → `storage.sqlite` writer and active selection → `basic` read. No Legacy module is loaded. The first blocker for running this path on real data was the source guard rejecting every WAL-mode copy (the form all natural copies take). Fixed in `baseline/source.py`; see `CURRENT_STATE.md`. No formula, status, result/feature fingerprint, revision or schema changed.
+
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
@@ -57,4 +61,4 @@ The analytics component extraction above is complete and needs independent revie
 
 The installed-job compatibility check is complete (see `CURRENT_STATE.md`). By the 2026-10-08 decision, the baseline runs analytics manually through the local target command; scheduling is deferred to `BACKLOG.md` and is not a request to add metrics, rebuild ingestion or rewrite the runner again. Existing old-correction limits and optional product work stay in `BACKLOG.md`.
 
-The source copy used for rehearsal was set to DELETE journal mode after SQLite backup so sidecar creation did not trip the source fingerprint guard. Read-only backup can update live `-shm` metadata; no live main database or personal values were changed or added to Git.
+Earlier rehearsal copies were set to DELETE journal mode because the guard tripped on WAL sidecars; since the WAL fix target runs on WAL-mode copies directly. Read-only backup can update live `-shm` metadata; no live main database or personal values were changed or added to Git.

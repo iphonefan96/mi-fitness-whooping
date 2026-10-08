@@ -12,6 +12,14 @@ Last verified: 2026-10-08 on `agent/claude-target-run` after the analytics compo
 
 Activity has no dedicated existing calculation: daily activity and vendor stress are presented from the selected daily feature, and the only derived activity metrics (`trend.steps.*`, `trend.stress_vendor.*`) come from the shared series component that also serves vitals and sleep series.
 
+## Source copies in WAL mode (2026-10-08, `agent/claude-skeleton`)
+
+The ETL writes `health.sqlite` in WAL mode, so `cp health.sqlite`, `cp health.sqlite*` and `sqlite3 .backup` all produce WAL-mode copies. Before this change the ordinary `run` failed on every such copy, in both Legacy and target, with `SOURCE_CHANGED_DURING_ANALYTICS_RUN`: the adapter's own read-only connection creates an empty `-wal` and creates/updates the `-shm` WAL index, and the guard counted their metadata as a source change. Rehearsals worked only after manually switching the copy to DELETE journal mode.
+
+The target source guard now fingerprints the files that hold data: the main file and a non-empty `-wal` (WAL frames are still read and still guarded); `-shm` and an empty `-wal` are ignored. For a source without sidecars the stored `source_file_fingerprint` is identical to Legacy's, so existing state stays compatible. Legacy is unchanged and still rejects WAL-mode copies.
+
+Verified through the launcher (`./mi-fitness-whooping run`, no `PYTHONPATH`) on all three kinds of fresh copies of the external source, against Legacy on a DELETE-mode copy of the same data: equal run summaries and equal feature/result/selection tables on the first run, after a historical RHR correction and after removing a historical main night; every repeat returned `NO NEW ANALYTICS INPUT`. Copies were removed. Synthetic regression tests cover a WAL source, a copy carrying uncheckpointed WAL frames, and a commit that lands mid-run (still `FAILED` with rollback).
+
 ## Persistent contracts
 
 The existing `health.sqlite` source schema, analytics SQLite schema v3, profile JSON v1, metric/result identity, active feature/result selection and file locations remain unchanged. Target feature storage and target result storage write the same revisioned tables. Real source exports, health/analytics databases, populated profiles and generated reports stay outside Git. Xiaomi HRV is unavailable; distance remains withheld because its source unit is unverified. SpO₂ is optical oxygen saturation, not a blood test.
@@ -35,6 +43,7 @@ On disposable SQLite backups of the external databases, independent Legacy and t
 
 - Decision 2026-10-08: the baseline runs analytics manually with `./mi-fitness-whooping run`. Scheduling is deferred to `BACKLOG.md`; the installed ETL/LaunchAgent is unchanged and runs ETL only.
 - Legacy-preserved cleanup gap: a date that loses both nightly and daily features, or loses a night during an algorithm-version rerun, keeps its previous active metric selections.
+- The live WAL source has not been run by target (live databases are out of bounds). If the live `-wal` exists but is empty, its stored Legacy fingerprint differs from target's, so the first target run after Legacy performs one incremental pass instead of `NO NEW ANALYTICS INPUT`.
 - Legacy-compatible incremental discovery uses source-file fingerprint and a 48-hour overlap; arbitrary old source corrections and deletions may need separate reconciliation. The candidate reconciliation ETL is not installed.
 - Stored freshness is assigned at calculation time. Historical rows can retain an old label on an unchanged rerun; the local `day`/`history` commands report stored freshness and do not replace Legacy's query-time headline policy.
 - The target runner is a behavior-preserving port of the existing baseline, including its POSIX `flock` and schema-v3 assumptions. Optional refinements remain in `BACKLOG.md`.
