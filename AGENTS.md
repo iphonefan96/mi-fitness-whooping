@@ -27,9 +27,9 @@ After a task, report what works end to end, contracts changed, tests run, remain
 
 At every new session, identify the current worktree, branch and HEAD. Read `ARCHITECTURE.md`, `CURRENT_STATE.md`, the active plan and `docs/WORKBOARD.md`; inspect the actual code before acting. Determine the last accepted base and the handoff branch from the workboard. Review that branch's HEAD and diff from the accepted base first. Fix confirmed defects in your own branch and verify them before taking the next workboard task. Do not treat a previous report as proof.
 
-Only one agent writes at a time. At a handoff, finish one coherent commit, leave the worktree clean, and report its SHA, changed behavior, tests and remaining blockers. The receiving agent reviews the exact SHA before continuing. Pause after handing off; do not start a new task in the same turn.
+Only one agent writes at a time. A writer may complete a substantial stage in several related commits without pausing between them. At a handoff, leave the worktree clean and report the exact commit range from the last accepted base, changed behavior, tests and remaining blockers. The receiving agent independently reviews that exact range before building on it. Pause after handing off; do not start the next stage in the same turn.
 
-Use separate branches and worktrees for implementation and review. The writer owns the current task; the reviewer checks a named commit SHA without editing the other branch. Only the integrator updates `docs/WORKBOARD.md`, moves a reviewed commit to the shared branch after PASS, and pushes that branch. Use synthetic data or separate disposable SQLite copies; never share a live analytics database between agents.
+Use separate branches and worktrees for implementation and review. The writer owns the current task; the reviewer checks a named commit SHA without editing the other branch. The writer records its own handoff (range, status, next item) in `docs/WORKBOARD.md`. Only the integrator records a new accepted base after an independent PASS, moves reviewed commits to the shared branch, and pushes it. Use synthetic data or separate disposable SQLite copies; never share a live analytics database between agents.
 
 ## Source-of-truth priority
 

@@ -32,23 +32,37 @@ class XiaomiAdapter(SourceAdapter):
         self._file_before: tuple | None = None
 
     def file_fingerprint(self) -> tuple:
-        def part(p: Path) -> tuple | None:
+        """Metadata of the files that hold source data: the main file and a non-empty WAL.
+
+        A read-only WAL reader (this adapter included) creates an empty `-wal`
+        and creates/updates the `-shm` WAL index, which is rebuildable shared
+        memory, not data. Counting them made every WAL-mode source copy fail
+        with SOURCE_CHANGED_DURING_ANALYTICS_RUN. The tuple shape is unchanged,
+        so a source without sidecars has the same fingerprint as before.
+        """
+        def part(p: Path, *, empty_is_absent: bool = False) -> tuple | None:
             if not p.exists():
                 return None
             s = p.stat()
+            if empty_is_absent and s.st_size == 0:
+                return None
             return (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
-        return tuple(part(Path(str(self.path) + suffix)) for suffix in ("", "-wal", "-shm"))
+        return (part(self.path), part(Path(str(self.path) + "-wal"), empty_is_absent=True), None)
+
+    def _sidecars_exist(self) -> bool:
+        return any(Path(str(self.path) + suffix).exists() for suffix in ("-wal", "-shm"))
 
     def __enter__(self) -> "XiaomiAdapter":
         if not self.path.is_file():
             raise FileNotFoundError(self.path)
         self._file_before = self.file_fingerprint()
+        sidecars_before = self._sidecars_exist()
         uri = self.path.resolve().as_uri()
         try:
             conn = sqlite3.connect(uri + "?mode=ro", uri=True)
             conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
         except sqlite3.OperationalError:
-            if self._file_before[1] is not None or self._file_before[2] is not None:
+            if sidecars_before:
                 raise RuntimeError("read-only source WAL cannot be opened safely")
             # immutable avoids creating -shm in a protected source directory;
             # pre/post file fingerprints are mandatory for this fallback.

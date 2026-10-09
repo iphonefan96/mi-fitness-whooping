@@ -10,17 +10,20 @@ from pathlib import Path
 
 from mi_fitness_whooping.baseline import IMPLEMENTATION_VERSION, NORMALIZATION_VERSION
 from mi_fitness_whooping.baseline.source import XiaomiAdapter
-from mi_fitness_whooping.baseline.foundations import FOUNDATION_ALGORITHM_VERSION, calculate_day
+from mi_fitness_whooping.baseline.foundations import (FOUNDATION_ALGORITHM_VERSION, calculate_day,
+                                                     foundation_inputs)
 from mi_fitness_whooping.analytics.sleep.core import ALGORITHM_VERSION as SLEEP_ALGORITHM_VERSION
-from mi_fitness_whooping.baseline.recovery import RECOVERY_ALGORITHM_VERSION, calculate_recovery_day
-from mi_fitness_whooping.baseline.monitoring import (MONITORING_ALGORITHM_VERSION,
-                                             calculate_cusum_series, calculate_monitoring_day)
+from mi_fitness_whooping.analytics.recovery_vitals.core import RECOVERY_ALGORITHM_VERSION
+from mi_fitness_whooping.analytics.recovery_vitals.monitoring import (
+    MONITORING_ALGORITHM_VERSION, calculate_cusum_series, calculate_monitoring_day,
+)
 from mi_fitness_whooping.baseline.features import build_daily, build_nightly
 from mi_fitness_whooping.baseline.normalization import canonical_hash, sleep_date, utc_from_epoch
 from mi_fitness_whooping.baseline.profile import load_profile
 from mi_fitness_whooping.baseline.feature_store import (active_feature_records, connect, delete_active_feature,
                                   get_state, migrate, put_feature, set_state)
-from mi_fitness_whooping.baseline.result_adapter import persistable
+from mi_fitness_whooping.integration.metric_results import to_persistable
+from mi_fitness_whooping.integration.recovery_vitals.adapter import monitoring_bands, recovery_for_day
 from mi_fitness_whooping.integration.sleep.run_context import SleepRunContext
 from mi_fitness_whooping.integration.sleep.target_persistence import TargetSleepStore
 from mi_fitness_whooping.orchestration.sleep import run_sleep_day
@@ -59,6 +62,27 @@ def _all_dates(source: XiaomiAdapter) -> set[date]:
     return dates
 
 
+def _has_change_log(db: sqlite3.Connection) -> bool:
+    return db.execute("""SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='normalized_change_log'""").fetchone() is not None
+
+
+def _change_log_dates(db: sqlite3.Connection, after: str) -> set[date]:
+    """Old and new dates of canonical changes a reconciled source logged after `after`.
+
+    A reconciliation rebuild re-normalizes every row and keeps unchanged rows'
+    import times. A corrected daily aggregate therefore need not advance
+    `daily_summary.updated_at`, and a deleted record leaves no row at all; the
+    candidate's `normalized_change_log` is the record of both. Sources without
+    the table (the installed ETL) are unaffected.
+    """
+    dates: set[date] = set()
+    for row in db.execute("""SELECT affected_local_date, old_local_date, new_local_date
+            FROM normalized_change_log WHERE detected_at>?""", (after,)):
+        dates.update(date.fromisoformat(value) for value in row if value)
+    return dates
+
+
 def _changed_dates(source: XiaomiAdapter, imported_after: str | None, last_max_ts: int | None) -> set[date]:
     if imported_after is None:
         return _all_dates(source)
@@ -71,6 +95,8 @@ def _changed_dates(source: XiaomiAdapter, imported_after: str | None, last_max_t
         "SELECT local_date FROM daily_summary WHERE updated_at>?", (imported_after,)))
     for r in db.execute("SELECT sleep_end_utc,utc_offset_seconds FROM sleep_sessions WHERE imported_at>?", (imported_after,)):
         result.add(sleep_date(utc_from_epoch(r[0]), offset_seconds=r[1]))
+    if _has_change_log(db):
+        result.update(_change_log_dates(db, imported_after))
     if last_max_ts is not None:
         # 48h overlap by source measurement timestamp, not wall-clock now.
         lo = last_max_ts - 48 * 3600
@@ -91,6 +117,8 @@ def _source_checkpoint(source: XiaomiAdapter) -> tuple[str | None, int | None]:
                          ("stress", "imported_at"), ("sleep_sessions", "imported_at"),
                          ("daily_summary", "updated_at")):
         values.append(db.execute(f"SELECT MAX({field}) FROM {table}").fetchone()[0])
+    if _has_change_log(db):
+        values.append(db.execute("SELECT MAX(detected_at) FROM normalized_change_log").fetchone()[0])
     last_import = max((v for v in values if v is not None), default=None)
     max_ts = db.execute("SELECT MAX(max_source_timestamp) FROM source_databases").fetchone()[0]
     return last_import, max_ts
@@ -178,7 +206,9 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                                 skipped += 1
                     source.assert_unchanged()
                     nights, dailies = active_feature_records(db)
-                    cusum_by_day = calculate_cusum_series(nights)
+                    foundation = foundation_inputs(nights, dailies)
+                    vitals_nights = foundation.vitals_nights
+                    cusum_by_day = calculate_cusum_series(vitals_nights)
                     available_dates = set(nights) | set(dailies)
                     if metric_force_full:
                         metric_dates = available_dates
@@ -204,9 +234,10 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                     metrics_skipped = 0
                     today = datetime.now().astimezone().date()
                     for day in sorted(metric_dates):
-                        foundation_drafts = calculate_day(day, nights, dailies)
-                        later_drafts = (calculate_recovery_day(day, nights, profile) +
-                                        calculate_monitoring_day(day, nights, foundation_drafts))
+                        foundation_results = calculate_day(day, foundation)
+                        recovery = recovery_for_day(day, vitals_nights, profile)
+                        later_drafts = calculate_monitoring_day(day, vitals_nights,
+                                                                monitoring_bands(foundation_results))
                         if day in cusum_by_day:
                             later_drafts.append(cusum_by_day[day])
                         fresh = "HISTORICAL" if day < today else ("FRESH" if day == today else "STALE")
@@ -219,8 +250,8 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                             input_contract_version="foundation-output-1",
                             quality_gate_version="foundation-gates-1",
                         )
-                        for draft in foundation_drafts:
-                            if repository.persist(session, persistable(draft), write_context).changed:
+                        for draft in foundation_results:
+                            if repository.persist(session, to_persistable(draft), write_context).changed:
                                 metrics_calculated += 1
                             else:
                                 metrics_skipped += 1
@@ -234,11 +265,16 @@ def run(source_path: str | Path, analytics_path: str | Path, profile_path: str |
                         )
                         metrics_calculated += sum(outcome.changed for outcome in sleep_store.outcomes)
                         metrics_skipped += sum(not outcome.changed for outcome in sleep_store.outcomes)
-                        produced_names = {draft.name for draft in foundation_drafts + later_drafts} | {
+                        produced_names = {draft.name for draft in foundation_results + later_drafts} | {
                             result.metric.value for result in sleep_results
-                        }
+                        } | ({recovery.name} if recovery is not None else set())
+                        if recovery is not None:
+                            if repository.persist(session, to_persistable(recovery), write_context).changed:
+                                metrics_calculated += 1
+                            else:
+                                metrics_skipped += 1
                         for draft in later_drafts:
-                            if repository.persist(session, persistable(draft), write_context).changed:
+                            if repository.persist(session, to_persistable(draft), write_context).changed:
                                 metrics_calculated += 1
                             else:
                                 metrics_skipped += 1

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -12,8 +13,13 @@ from mi_fitness_whooping.basic import day_report, history_report, run_and_read
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["reconcile"]:
+        # Target-owned canonical source history; its own arguments and JSON output.
+        from mi_fitness_whooping.ingestion.reconcile import main as reconcile_main
+        return reconcile_main(sys.argv[2:])
     parser = argparse.ArgumentParser(description="Existing Mi Fitness daily analytics")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("reconcile", help="rebuild canonical source history (see `reconcile --help`)")
     run = commands.add_parser("run", help="run existing calculations and show a date")
     run.add_argument("--source", type=Path, required=True)
     run.add_argument("--db", type=Path, required=True)

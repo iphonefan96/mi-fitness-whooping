@@ -11,7 +11,7 @@ At a branch handoff, first follow `AGENTS.md` and the current `docs/WORKBOARD.md
 3. **Verify:** run targeted behavior/compatibility tests with synthetic data. Check reruns and data integrity when storage or orchestration changes. Use broader tests at integration checkpoints.
 4. **Report:** show an example input/command and output when possible; state changed contracts, tests, remaining blockers and the next necessary step. Update current-state documentation and put optional work in `BACKLOG.md`.
 
-These activities may happen in one task and one coherent commit. A feature specification or design-only step is useful when the contract is genuinely unclear or risky; it is not a mandatory prelude to every edit. Reconcile the plan when assumptions change. Perform an independent audit before production activation or after a substantial integration, not after every narrow implementation step.
+These activities may happen in one task and one or several related commits; a handoff names the whole commit range for independent review. A feature specification or design-only step is useful when the contract is genuinely unclear or risky; it is not a mandatory prelude to every edit. Reconcile the plan when assumptions change. Perform an independent audit before production activation or after a substantial integration, not after every narrow implementation step.
 
 ## Boundaries
 
