@@ -2,18 +2,16 @@
 
 This board records the current handoff for the Mi Fitness analytics. The writer records its handoff here; only the integrator records a new accepted base after an independent PASS. Project behavior belongs in `CURRENT_STATE.md`; deferred work belongs in `BACKLOG.md`.
 
-- **Last accepted base:** `444f1799406e5913bb2aa421fd55217ba7c00ab8` from `agent/claude-target-run` — **PASS** after independent Codex review (recorded by the integrator in `73a45459d3f1cf0085af03b2d70e4749d5338ab1`).
-- **Handing off from:** `agent/claude-target-run` (Claude, writer). **Review range:** `73a45459d3f1cf0085af03b2d70e4749d5338ab1..HEAD` of that branch; the exact HEAD SHA is in the handoff report. Not yet independently reviewed:
-  1. `1cc9701` Manual-run decision: scheduling deferred to `BACKLOG.md`; README states Python ≥ 3.11 and no path defaults. Docs only.
-  2. `ef807ea` Recovery/vitals component: `recovery.score` and direct vitals in `domain|analytics|integration/recovery_vitals`; `baseline/recovery.py` removed.
-  3. `939b78a` Handoff rules for multi-commit stages (`AGENTS.md`, `EXECUTION_PROCESS.md`).
-  4. `9e4e6b5` Shared `domain/metrics.py` (`FeatureLineage`, `MetricResult`) and `integration/metric_results.py`. No behavior change.
-  5. `5a46d09` Series component (`baseline.*`, `*.deviation`, `trend.*`) and vitals monitoring (`anomaly.*`, watch, CUSUM) on typed `VitalsBand`; `baseline/monitoring.py` and the monitoring/foundation-draft coupling removed.
-  6. `05df7ba` Sleep stage metrics and regularity in `analytics/sleep/stages.py`; `MetricDraft` and `baseline/result_adapter.py` removed; `baseline.foundations` is assembly/order only.
-  7. Final docs/handoff commit (this board, plan, dates).
-- **Contracts:** no change to schema v3, profile v1, metric names/values/statuses/units/metadata/versions, active selection, persistence order or CLI. Locked Sleep Core V1 contracts untouched.
-- **Evidence from the writer:** full suite 169 passed / 7,947 subtests. Randomized and boundary characterization against Legacy for every moved calculation; deliberate mutations of weights, gates and thresholds were caught (surviving mutants led to added boundary cases). Existing full-table Legacy differential scenarios unchanged. Three disposable real-data copies (removed afterwards): Legacy and target tables equal on first run, repeat `NO NEW ANALYTICS INPUT`, after a historical RHR correction and after removing a historical main night. No live database, ETL, LaunchAgent or schedule was changed.
-- **Status:** analytics component extraction complete; waiting for independent review of the range.
-- **Next item:** Codex reviews the range. After PASS, no further analytics extraction is planned; scheduling, freshness policy and UI/API stay in `BACKLOG.md` until the user selects one. No Activity component (no dedicated existing calculation).
+- **Last accepted base:** `e388147f240f1e7777e1b3d933cc93781d59a779` — the analytics skeleton chain `73a45459d3f1cf0085af03b2d70e4749d5338ab1..e388147f240f1e7777e1b3d933cc93781d59a779` from `agent/claude-source-contract`, integrated into `feature/sleep-core-v1` by merge. **PASS** for all five ranges, no required fix:
+  1. `73a4545..b93a69c` analytics component extraction (`1cc9701` was already integrated via `edfeeed`);
+  2. `b93a69c..475ae8a` WAL-mode source copies;
+  3. `475ae8a..48df8d4` change-log invalidation of corrected and deleted dates;
+  4. `48df8d4..26da697` target-owned reconciliation (`reconcile` subcommand);
+  5. `26da697..e388147` `strict-v2`, accepted `unresolved_exclude`, `SOURCE_INCOMPLETE`/`SOURCE_BUSY`.
+- **Review independence (limit):** the reviewer was a separate Claude agent of the same model, without the author's context, read-only on detached commits. It is not a different model or a Codex review.
+- **Review evidence:** full suite 210 passed; `Legacy/` unchanged; no runtime Legacy import in `src/`. On disposable NAS/export copies (SHA-verified): port `candidate-v1` digest equals the Legacy candidate; `strict-v2` selects the same records as `candidate-v1`; incremental reconcile equals a clean build; target and Legacy analytics tables equal including row order; incremental analytics after corrections/deletions equals a fresh run; `SOURCE_INCOMPLETE` exit 3 leaves the published history unchanged. No live database, ETL, LaunchAgent or schedule was run or changed.
+- **Not included:** `agent/claude-freshness` (`a637277`), unreviewed.
+- **Open before switching the live path or scheduling:** iPhone → NAS sync completeness is unverified (Synology conflict copies; main `.db` and `-wal` not proven to be one sync); a first build or `--rebuild-from-source` into a new directory has no expected-database list and can publish without a region; retiring an expected source database (including the empty `notlogin` databases) needs a reviewed option; the reconcile output directory has no lock. Other review notes are non-blocking and recorded in `BACKLOG.md`.
+- **Status:** accepted and integrated. No next implementation or scheduling task is authorized; the user selects the next step.
 
 The receiving agent reviews the exact range before writing. One agent writes at a time.

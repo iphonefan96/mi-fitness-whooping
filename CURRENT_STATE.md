@@ -1,6 +1,6 @@
 # Current State
 
-Last verified: 2026-10-08 on `agent/claude-target-run` after the analytics component extraction (not yet independently reviewed; accepted base `444f1799406e5913bb2aa421fd55217ba7c00ab8`). The installed macOS ETL and LaunchAgent were not changed.
+Last verified: 2026-10-09 on `feature/sleep-core-v1` after integrating the independently reviewed chain `73a4545..e388147` (analytics extraction, WAL source copies, change-log invalidation, target-owned ingestion, source contract). The installed macOS ETL and LaunchAgent were not changed.
 
 ## What runs locally
 

@@ -63,13 +63,13 @@ Ported the verified reconciliation candidate into `mi_fitness_whooping.ingestion
 
 ## Current stage: source contract (2026-10-09, `agent/claude-source-contract`)
 
-`unresolved_exclude` accepted; `strict-v2` added (declared-default schema equivalence, `candidate-v1`/`strict-v1` kept for reproducibility); a missing expected source database stops reconcile with `SOURCE_INCOMPLETE` before any write. Verified on synthetic cases and a fresh NAS snapshot (`CURRENT_STATE.md`). The skeleton is handed to independent review; no new BACKLOG item is started.
+`unresolved_exclude` accepted; `strict-v2` added (declared-default schema equivalence, `candidate-v1`/`strict-v1` kept for reproducibility); a missing expected source database stops reconcile with `SOURCE_INCOMPLETE` before any write. Verified on synthetic cases and a fresh NAS snapshot (`CURRENT_STATE.md`). The skeleton passed independent review and is integrated (`docs/WORKBOARD.md`); no new BACKLOG item is started.
 
 ## Next necessary boundary
 
 The current handoff branch, accepted base and next writer are recorded only in `docs/WORKBOARD.md`. A receiving agent reviews the previous branch's exact HEAD before continuing this boundary.
 
-The analytics component extraction above is complete and needs independent review of its whole commit range before anything builds on it. No further analytics extraction is planned: what remains in `baseline` (source adapter, feature builders, feature store, profile loading, per-date assembly and the runner's lifecycle/change-discovery SQL) is ingestion/orchestration, and moving it is not required for the baseline. Any next product step (scheduling, freshness policy, UI/API) needs a user decision.
+The analytics component extraction above is complete and reviewed. No further analytics extraction is planned: what remains in `baseline` (source adapter, feature builders, feature store, profile loading, per-date assembly and the runner's lifecycle/change-discovery SQL) is ingestion/orchestration, and moving it is not required for the baseline. Any next product step (scheduling, freshness policy, UI/API) needs a user decision.
 
 The installed-job compatibility check is complete (see `CURRENT_STATE.md`). By the 2026-10-08 decision, the baseline runs analytics manually through the local target command; scheduling is deferred to `BACKLOG.md` and is not a request to add metrics, rebuild ingestion or rewrite the runner again. Existing old-correction limits and optional product work stay in `BACKLOG.md`.
 
